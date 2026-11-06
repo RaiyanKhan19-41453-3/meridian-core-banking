@@ -1,0 +1,17 @@
+# secrets
+.env
+
+# .NET
+bin/
+obj/
+*.user
+.nuget/
+
+# Node / frontend
+node_modules/
+dist/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
