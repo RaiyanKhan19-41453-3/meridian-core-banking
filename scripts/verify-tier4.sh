@@ -22,7 +22,7 @@ TOK_D=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"demo@bank.co
 echo '=== products on offer ==='
 PRODUCTS=$(curl -s $BASE/api/loans/products -H "Authorization: Bearer $TOK_D")
 echo "$PRODUCTS" | python3 -m json.tool | head -30
-check 'PLN-PER and HML-STD listed' 2 "$(echo "$PRODUCTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")"
+check 'PLN-PER and HML-STD listed' 'HML-STD,PLN-PER' "$(echo "$PRODUCTS" | python3 -c "import sys,json; d=json.load(sys.stdin); codes=[p['code'] for p in d if p['currency']=='USD']; print(','.join(sorted(codes)))")"
 
 echo '=== 1. KYC gate blocks unverified users ==='
 code=$(code_of -X POST $BASE/api/loans/apply -H "Authorization: Bearer $(curl -s -X POST $BASE/api/auth/register -H "$CT" -d "{\"email\":\"$U4\",\"password\":\"Pass1234!\",\"fullName\":\"Tier Four Subprime\"}" | j "['accessToken']")" -H "$CT" -d '{"loanProductCode":"PLN-PER","principal":5000,"termMonths":12,"purpose":"test","disbursementAccountId":"00000000-0000-0000-0000-000000000000"}')

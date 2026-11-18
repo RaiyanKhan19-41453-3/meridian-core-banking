@@ -14,7 +14,6 @@ export default function History() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const currency = accounts.find((a) => a.id === accountId)?.currency ?? 'USD'
 
   useEffect(() => {
     api.listAccounts().then((list) => {
@@ -83,8 +82,8 @@ export default function History() {
                   <td className="mono small">{r.reference}</td>
                   <td>{r.type}</td>
                   <td>{r.description}</td>
-                  <td className={`num mono ${r.amount < 0 ? 'neg' : 'pos'}`}>{money(r.amount, currency)}</td>
-                  <td className="num mono">{money(r.balanceAfter, currency)}</td>
+                  <td className={`num mono ${r.amount < 0 ? 'neg' : 'pos'}`}>{money(r.amount, r.currency)}</td>
+                  <td className="num mono">{money(r.balanceAfter, r.currency)}</td>
                 </tr>
               ))}
               {!data || data.items.length === 0 ? (

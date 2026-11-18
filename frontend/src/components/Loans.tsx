@@ -19,6 +19,7 @@ export default function Loans() {
   const [principal, setPrincipal] = useState('5000')
   const [termMonths, setTermMonths] = useState('12')
   const [purpose, setPurpose] = useState('')
+  const [cib, setCib] = useState('')
   const [accountId, setAccountId] = useState('')
 
   const [offer, setOffer] = useState<ApplyLoanResponse | null>(null)
@@ -31,11 +32,16 @@ export default function Loans() {
     [products, productCode],
   )
 
+  const eligibleAccounts = useMemo(
+    () => accounts.filter((a) => a.status === 'Active' && (!selectedProduct || a.currency === selectedProduct.currency)),
+    [accounts, selectedProduct],
+  )
+
   const reload = async () => {
     const [p, a, l] = await Promise.all([api.loanProducts(), api.listAccounts(), api.listLoans()])
     setProducts(p)
-    setAccounts(a.filter((x) => x.status === 'Active' && x.currency === 'USD'))
-    setAccountId((cur) => cur || a.find((x) => x.status === 'Active' && x.currency === 'USD')?.id || '')
+    setAccounts(a.filter((x) => x.status === 'Active'))
+    setAccountId((cur) => cur || a.find((x) => x.status === 'Active')?.id || '')
     setLoans(l)
   }
 
@@ -59,6 +65,7 @@ export default function Loans() {
         termMonths: Number(termMonths),
         purpose: purpose || 'General purpose',
         disbursementAccountId: accountId,
+        cibScore: cib.trim() ? Number(cib) : undefined,
       })
       setOffer(res)
       setMsg(res.decision === 'Approved'
@@ -133,14 +140,14 @@ export default function Loans() {
         {offer && (
           <div className={`offer ${offer.decision === 'Approved' ? 'offer-ok' : 'offer-bad'}`}>
             <div className="offer-title">
-              {offer.decision === 'Approved' ? '✔ Approved' : '✖ Declined'} · score {offer.creditScore}
+              {offer.decision === 'Approved' ? '✔ Approved' : '✖ Declined'} · score {offer.creditScore}{offer.cibScore !== null ? ` (CIB ${offer.cibScore})` : ''}
             </div>
             <div className="offer-reason">{offer.reason}</div>
             {offer.decision === 'Approved' && (
               <div className="offer-amounts">
-                <span>EMI <strong>{money(offer.loan.schedule[0]?.total ?? 0)}</strong></span>
-                <span>Fee <strong>{money(offer.loan.originationFee)}</strong></span>
-                <span>Total repaid <strong>{money(offer.loan.schedule.reduce((s, i) => s + i.total, 0))}</strong></span>
+                <span>EMI <strong>{money(offer.loan.schedule[0]?.total ?? 0, selectedProduct?.currency)}</strong></span>
+                <span>Fee <strong>{money(offer.loan.originationFee, selectedProduct?.currency)}</strong></span>
+                <span>Total repaid <strong>{money(offer.loan.schedule.reduce((s, i) => s + i.total, 0), selectedProduct?.currency)}</strong></span>
               </div>
             )}
             <div className="btn-row" style={{ marginTop: 12 }}>
@@ -164,18 +171,18 @@ export default function Loans() {
             <select value={productCode} onChange={(e) => setProductCode(e.target.value)}>
               {products.map((p) => (
                 <option key={p.code} value={p.code}>
-                  {p.name} — {pct(p.annualInterestRate)} · {money(p.minPrincipal)}–{money(p.maxPrincipal)}
+                  {p.name} — {pct(p.annualInterestRate)} · {money(p.minPrincipal, p.currency)}–{money(p.maxPrincipal, p.currency)}
                 </option>
               ))}
             </select>
           </label>
           {selectedProduct && (
             <p className="product-terms">
-              {selectedProduct.minTermMonths}–{selectedProduct.maxTermMonths} months · fee {money(selectedProduct.originationFee)} · min score {selectedProduct.minCreditScore}
+              {selectedProduct.minTermMonths}–{selectedProduct.maxTermMonths} months · fee {money(selectedProduct.originationFee, selectedProduct.currency)} · min score {selectedProduct.minCreditScore}
             </p>
           )}
           <label className="field">
-            <span>Amount (USD)</span>
+            <span>Amount ({selectedProduct?.currency})</span>
             <input type="number" min={selectedProduct?.minPrincipal} max={selectedProduct?.maxPrincipal}
               step="1" value={principal} onChange={(e) => setPrincipal(e.target.value)} required />
           </label>
@@ -187,16 +194,23 @@ export default function Loans() {
           <label className="field">
             <span>Disburse to</span>
             <select value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
-              {accounts.length === 0 && <option value="">No USD accounts</option>}
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.accountNumber} · {a.type}</option>)}
+              {eligibleAccounts.length === 0 && <option value="">No {selectedProduct?.currency} accounts</option>}
+              {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{a.accountNumber} · {a.type} · {a.currency}</option>)}
             </select>
           </label>
+          <label className="field">
+            <span>CIB bureau score <small>(optional)</small></span>
+            <input type="number" min={300} max={850} value={cib} onChange={(e) => setCib(e.target.value)} placeholder="e.g. 780" />
+          </label>
+          <p className="muted small" style={{ marginTop: '-8px' }}>
+            Blended 60% CIB + 40% internal model when supplied; blank = internal model only.
+          </p>
           <label className="field">
             <span>Purpose <small>(optional)</small></span>
             <input value={purpose} onChange={(e) => setPurpose(e.target.value)} maxLength={500}
               placeholder="e.g. Home renovation" />
           </label>
-          {accounts.length === 0 && <p className="muted small">Open a USD account first (Overview tab).</p>}
+          {eligibleAccounts.length === 0 && <p className="muted small">Open a {selectedProduct?.currency} account first (Overview tab).</p>}
           <button className="btn btn-primary btn-block" disabled={busy || !accountId || !selectedProduct}>
             {busy ? 'Submitting…' : 'Submit application'}
           </button>
@@ -218,15 +232,15 @@ export default function Loans() {
               <div className="loan-card-head">
                 <div>
                   <div className="loan-ref mono">{l.reference}</div>
-                  <div className="muted small">{l.productName} · {l.annualInterestRate * 100}% p.a. · {l.termMonths} months</div>
+                  <div className="muted small">{l.productName} · {l.annualInterestRate * 100}% p.a. · {l.termMonths} months{ l.cibScore !== null ? ` · CIB ${l.cibScore}` : '' }</div>
                 </div>
                 <span className={`pill ${statusClass}`}>{l.status}</span>
               </div>
               <div className="loan-card-body">
                 <div className="loan-metrics">
-                  <div><span className="muted small">Principal</span><br /><strong>{money(l.principal)}</strong></div>
-                  <div><span className="muted small">Outstanding</span><br /><strong>{money(l.totalOutstanding)}</strong></div>
-                  <div><span className="muted small">Next due</span><br /><strong>{l.nextDueDate ? `${new Date(l.nextDueDate).toLocaleDateString()} · ${money(l.nextDueAmount ?? 0)}` : '—'}</strong></div>
+                  <div><span className="muted small">Principal</span><br /><strong>{money(l.principal, l.currency)}</strong></div>
+                  <div><span className="muted small">Outstanding</span><br /><strong>{money(l.totalOutstanding, l.currency)}</strong></div>
+                  <div><span className="muted small">Next due</span><br /><strong>{l.nextDueDate ? `${new Date(l.nextDueDate).toLocaleDateString()} · ${money(l.nextDueAmount ?? 0, l.currency)}` : '—'}</strong></div>
                 </div>
                 {l.installmentsTotal > 0 && (
                   <div className="progress" aria-label="Repayment progress">
@@ -258,9 +272,9 @@ export default function Loans() {
                           <tr key={s.installmentNo}>
                             <td>{s.installmentNo}</td>
                             <td className="mono small">{new Date(s.dueDate).toLocaleDateString()}</td>
-                            <td className="num mono">{money(s.principal)}</td>
-                            <td className="num mono">{money(s.interest)}</td>
-                            <td className="num mono">{money(s.total)}</td>
+                            <td className="num mono">{money(s.principal, detail.summary.currency)}</td>
+                            <td className="num mono">{money(s.interest, detail.summary.currency)}</td>
+                            <td className="num mono">{money(s.total, detail.summary.currency)}</td>
                             <td><span className={`pill ${s.status === 'Paid' ? 'pill-active' : s.status === 'Overdue' ? 'pill-rejected' : 'pill-closed'}`}>{s.status}</span></td>
                           </tr>
                         ))}

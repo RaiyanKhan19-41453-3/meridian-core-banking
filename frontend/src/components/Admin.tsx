@@ -293,10 +293,10 @@ export default function Admin() {
                   <td className="mono small">{l.reference}</td>
                   <td className="small">{l.customer}</td>
                   <td>{l.product}</td>
-                  <td className="num mono">{l.principal.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+                  <td className="num mono">{l.principal.toLocaleString('en-US', { style: 'currency', currency: l.currency })}</td>
                   <td className="num mono">{l.installmentsPaid}/{l.installmentsTotal}</td>
                   <td className={`num mono ${l.overdueInstallments > 0 ? 'neg' : ''}`}>{l.overdueInstallments}</td>
-                  <td className="num mono">{l.outstanding.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</td>
+                  <td className="num mono">{l.outstanding.toLocaleString('en-US', { style: 'currency', currency: l.currency })}</td>
                 </tr>
               ))}
               {loanRows.length === 0 && <tr><td colSpan={7} className="muted center">No loans in this view</td></tr>}

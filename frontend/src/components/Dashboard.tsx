@@ -111,7 +111,7 @@ export default function Dashboard() {
             <label className="field">
               <span>Currency</span>
               <select value={openCurrency} onChange={(e) => setOpenCurrency(e.target.value)}>
-                {['USD', 'EUR', 'GBP', 'KES', 'NGN'].map((c) => <option key={c} value={c}>{c}</option>)}
+                {['USD', 'EUR', 'GBP', 'KES', 'NGN', 'BDT'].map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
             <button className="btn btn-primary btn-block" disabled={opening}>

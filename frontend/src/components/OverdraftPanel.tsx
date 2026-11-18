@@ -1,29 +1,31 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, ApiError, type Account, type OverdraftFacilityDto, type OverdraftProductTerms } from '../api'
 
-const money = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+const money = (n: number, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n)
 
 export default function OverdraftPanel({ accounts, onChanged }: { accounts: Account[]; onChanged: () => void }) {
   const [products, setProducts] = useState<OverdraftProductTerms[]>([])
   const [facilities, setFacilities] = useState<OverdraftFacilityDto[]>([])
-  const [productCode, setProductCode] = useState<'ODL-VAR' | 'ODL-SEC'>('ODL-VAR')
+  const [productCode, setProductCode] = useState<'ODL-VAR' | 'ODL-SEC' | 'ODL-VAR-BDT' | 'ODL-SEC-BDT'>('ODL-VAR')
   const [accountId, setAccountId] = useState('')
   const [collateralId, setCollateralId] = useState('')
   const [limit, setLimit] = useState('5000')
+  const [cib, setCib] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
+  const selectedProduct = products.find((p) => p.productCode === productCode) ?? products[0]
+  const productCurrency = selectedProduct?.currency ?? 'USD'
   const currentAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'Current' && a.status === 'Active' && a.currency === 'USD'),
-    [accounts],
+    () => accounts.filter((a) => a.type === 'Current' && a.status === 'Active' && a.currency === productCurrency),
+    [accounts, productCurrency],
   )
   const savingsAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'Savings' && a.status === 'Active' && a.currency === 'USD'),
-    [accounts],
+    () => accounts.filter((a) => a.type === 'Savings' && a.status === 'Active' && a.currency === productCurrency),
+    [accounts, productCurrency],
   )
-  const selectedProduct = products.find((p) => p.productCode === productCode)
   const requestedLimit = Number(limit) || 0
   const requiredPledge = selectedProduct?.secured && requestedLimit > 0
     ? requestedLimit / 0.9
@@ -61,7 +63,8 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
         accountId,
         productCode,
         requestedLimit,
-        collateralAccountId: productCode === 'ODL-SEC' ? collateralId : undefined,
+        collateralAccountId: selectedProduct?.secured ? collateralId : undefined,
+        cibScore: cib.trim() ? Number(cib) : undefined,
       })
       setMsg(f.status === 'Active'
         ? `Facility ${f.reference} approved — ${money(f.limit)} of headroom unlocked.`
@@ -80,7 +83,7 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
     setError(null)
     try {
       await api.closeOverdraft(f.id, 'Closed by customer')
-      setMsg(`${f.reference} closed.${f.productCode === 'ODL-SEC' ? ' Collateral released.' : ''}`)
+      setMsg(`${f.reference} closed.${f.productCode.includes('SEC') ? ' Collateral released.' : ''}`)
       await reload()
       onChanged()
     } catch (err) {
@@ -110,13 +113,13 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
           {products.map((p) => (
             <label key={p.productCode} className={productCode === p.productCode ? 'od-product selected' : 'od-product'}>
               <input type="radio" name="od-product" value={p.productCode} checked={productCode === p.productCode}
-                onChange={() => setProductCode(p.productCode as 'ODL-VAR' | 'ODL-SEC')} />
+                onChange={() => setProductCode(p.productCode)} />
               <div className="od-product-body">
                 <div className="od-product-title">
                   {p.secured ? '🔒 ODL-SEC — Secured' : '⚡ ODL-VAR — Unsecured'}
                 </div>
                 <div className="od-product-terms">
-                  {money(p.minLimit)}–{money(p.maxLimit)} · {p.annualInterestRate.toFixed(0)}% p.a.
+                  {p.currency === 'BDT' ? 'BDT' : ''}{money(p.minLimit, p.currency)}–{money(p.maxLimit, p.currency)} · {p.annualInterestRate.toFixed(0)}% p.a.
                   {p.secured ? ` · pledge ≥ limit ÷ 0.9` : ` · credit score ≥ ${p.minCreditScore}`}
                 </div>
                 <div className="od-product-desc">
@@ -131,7 +134,7 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
       )}
 
       {currentAccounts.length === 0 ? (
-        <p className="muted">Open a USD Current account (Overview) to apply.</p>
+        <p className="muted">Open a {productCurrency} Current account (Overview) to apply.</p>
       ) : (
         <form className="od-apply" onSubmit={apply}>
           <label className="field">
@@ -140,28 +143,32 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
               {currentAccounts.map((a) => <option key={a.id} value={a.id}>{a.accountNumber}</option>)}
             </select>
           </label>
-          {productCode === 'ODL-SEC' && (
+          {selectedProduct?.secured && (
             <label className="field">
               <span>Collateral savings account</span>
               <select value={collateralId} onChange={(e) => setCollateralId(e.target.value)}>
-                {savingsAccounts.length === 0 && <option value="">No USD savings accounts</option>}
-                {savingsAccounts.map((a) => <option key={a.id} value={a.id}>{a.accountNumber} · {money(a.balance)}</option>)}
+                {savingsAccounts.length === 0 && <option value="">No {productCurrency} savings accounts</option>}
+                {savingsAccounts.map((a) => <option key={a.id} value={a.id}>{a.accountNumber} · {money(a.balance, productCurrency)}</option>)}
               </select>
             </label>
           )}
           <label className="field">
-            <span>Limit (USD)</span>
+            <span>Limit ({productCurrency})</span>
             <input type="number" min={selectedProduct?.minLimit ?? 500} max={selectedProduct?.maxLimit ?? 25000}
               step="100" value={limit} onChange={(e) => setLimit(e.target.value)} />
           </label>
-          <button className="btn btn-primary" disabled={busy || !accountId || (productCode === 'ODL-SEC' && !pledgeCovered)}>
+          <label className="field">
+            <span>CIB bureau score <small>(optional)</small></span>
+            <input type="number" min={300} max={850} value={cib} onChange={(e) => setCib(e.target.value)} placeholder="e.g. 780" />
+          </label>
+          <button className="btn btn-primary" disabled={busy || !accountId || (selectedProduct?.secured && !pledgeCovered)}>
             {busy ? 'Applying…' : 'Apply for overdraft'}
           </button>
-          {productCode === 'ODL-SEC' && selectedCollateral && requestedLimit > 0 && (
+          {selectedProduct?.secured && selectedCollateral && requestedLimit > 0 && (
             <p className={pledgeCovered ? 'ok-text small' : 'neg small'} style={{ margin: '4px 0 0' }}>
               {pledgeCovered
-                ? `✔ Pledge of ${money(requiredPledge)} covered by ${money(selectedCollateral.balance)}`
-                : `✖ Need ${money(requiredPledge)} in the savings account, have ${money(selectedCollateral.balance)}`}
+                ? `✔ Pledge of ${money(requiredPledge, productCurrency)} covered by ${money(selectedCollateral.balance, productCurrency)}`
+                : `✖ Need ${money(requiredPledge, productCurrency)} in the savings account, have ${money(selectedCollateral.balance, productCurrency)}`}
             </p>
           )}
         </form>
@@ -176,16 +183,16 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
                 <div className="od-item-head">
                   <div>
                     <div className="mono od-ref">{f.reference}</div>
-                    <div className="muted small">{f.productCode} · score {f.creditScore} · {f.accountNumber}{f.collateralAccountNumber ? ` · pledge ${f.collateralAccountNumber}` : ''}</div>
+                    <div className="muted small">{f.productCode} · score {f.creditScore}{f.cibScore !== null ? ` (CIB ${f.cibScore})` : ''} · {f.accountNumber}{f.collateralAccountNumber ? ` · pledge ${f.collateralAccountNumber}` : ''}</div>
                   </div>
                   <span className={`pill ${f.status === 'Active' ? 'pill-active' : f.status === 'Rejected' ? 'pill-rejected' : 'pill-closed'}`}>
                     {f.status}
                   </span>
                 </div>
                 <div className="loan-metrics">
-                  <div><span className="muted small">Limit</span><br /><strong>{money(f.limit)}</strong></div>
-                  <div><span className="muted small">Available</span><br /><strong>{money(f.availableCredit)}</strong></div>
-                  <div><span className="muted small">Accrued</span><br /><strong>{money(f.accruedInterestUncharged)}</strong></div>
+                  <div><span className="muted small">Limit</span><br /><strong>{money(f.limit, f.productCode.endsWith('-BDT') ? 'BDT' : 'USD')}</strong></div>
+                  <div><span className="muted small">Available</span><br /><strong>{money(f.availableCredit, f.productCode.endsWith('-BDT') ? 'BDT' : 'USD')}</strong></div>
+                  <div><span className="muted small">Accrued</span><br /><strong>{money(f.accruedInterestUncharged, f.productCode.endsWith('-BDT') ? 'BDT' : 'USD')}</strong></div>
                 </div>
                 {f.status === 'Active' && (
                   <>
@@ -197,7 +204,7 @@ export default function OverdraftPanel({ accounts, onChanged }: { accounts: Acco
                         title={f.currentBalance < 0 ? 'Repay the overdrawn balance first' : 'Close facility'}>
                         Close facility
                       </button>
-                      {f.currentBalance < 0 && <span className="muted small">repay {money(-f.currentBalance)} to close</span>}
+                      {f.currentBalance < 0 && <span className="muted small">repay {money(-f.currentBalance, f.productCode.endsWith('-BDT') ? 'BDT' : 'USD')} to close</span>}
                     </div>
                   </>
                 )}

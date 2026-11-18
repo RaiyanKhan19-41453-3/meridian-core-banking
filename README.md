@@ -183,15 +183,16 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all six suites on a clean volume = 145/145 green)**
+**Verification (all seven suites on isolated fresh volumes = 173/173 green)**
 | Suite | Checks |
 |------|--------|
-| `verify.sh` | 25 — auth, 2FA, lockout, refresh rotation, idempotency, freeze/close/reverse, limits |
+| `verify.sh` | 25 — auth, 2FA, lockout, refresh rotation, idempotency (actor-scoped), freeze/close/reverse, limits |
 | `verify-tier2.sh` | 17 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), statement |
 | `verify-tier3.sh` | 27 — KYC flow, document vault, watchlist, AML rules, admin review |
 | `verify-tier4.sh` | 22 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
+| `verify-tier7.sh` | 28 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
 
 Each suite deliberately seeds its own unique user with randomized emails and **per-run unique idempotency-key suffixes** — safe to re-run against the same volume without wiping.
 

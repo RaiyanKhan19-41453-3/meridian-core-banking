@@ -48,6 +48,7 @@ export interface AdminLoanRow {
   reference: string
   customer: string
   product: string
+  currency: string
   principal: number
   annualInterestRate: number
   termMonths: number
@@ -62,7 +63,7 @@ export interface AdminLoanRow {
 }
 
 export interface OverdraftProductTerms {
-  productCode: 'ODL-VAR' | 'ODL-SEC'
+  productCode: 'ODL-VAR' | 'ODL-SEC' | 'ODL-VAR-BDT' | 'ODL-SEC-BDT'
   currency: string
   annualInterestRate: number
   minLimit: number
@@ -91,6 +92,8 @@ export interface OverdraftFacilityDto {
   collateralAccountId: string | null
   collateralAmount: number | null
   collateralAccountNumber: string | null
+  cibScore: number | null
+  scoreSource: string
 }
 export interface AdminOverdraftRow {
   id: string
@@ -237,11 +240,14 @@ export interface LoanSummaryDto {
   reference: string
   productCode: string
   productName: string
+  currency: string
   principal: number
   annualInterestRate: number
   termMonths: number
   status: string
   creditScore: number
+  cibScore: number | null
+  scoreSource: string
   purpose: string
   appliedAt: string
   disbursedAt: string | null
@@ -264,6 +270,8 @@ export interface LoanDetailDto {
 export interface ApplyLoanResponse {
   decision: string
   creditScore: number
+  cibScore: number | null
+  scoreSource: string
   reason: string
   loan: LoanDetailDto
 }
@@ -277,6 +285,7 @@ export interface StatementLine {
   balanceAfter: number
   description: string
   postedAt: string
+  currency: string
 }
 export interface Paged<T> {
   items: T[]
@@ -479,7 +488,7 @@ export const api = {
   // ---- overdraft ----
   overdraftTerms: () => request<OverdraftProductTerms[]>('/api/overdraft/terms'),
   myOverdrafts: () => request<OverdraftFacilityDto[]>('/api/overdraft'),
-  applyOverdraft: (input: { accountId: string; productCode: 'ODL-VAR' | 'ODL-SEC'; requestedLimit: number; collateralAccountId?: string }) =>
+  applyOverdraft: (input: { accountId: string; productCode: 'ODL-VAR' | 'ODL-SEC' | 'ODL-VAR-BDT' | 'ODL-SEC-BDT'; requestedLimit: number; collateralAccountId?: string; cibScore?: number }) =>
     request<OverdraftFacilityDto>('/api/overdraft/apply', {
       method: 'POST',
       body: JSON.stringify(input),
@@ -492,7 +501,7 @@ export const api = {
 
   // ---- loans ----
   loanProducts: () => request<LoanProductDto[]>('/api/loans/products'),
-  applyLoan: (input: { loanProductCode: string; principal: number; termMonths: number; purpose: string; disbursementAccountId: string }) =>
+  applyLoan: (input: { loanProductCode: string; principal: number; termMonths: number; purpose: string; disbursementAccountId: string; cibScore?: number }) =>
     request<ApplyLoanResponse>('/api/loans/apply', {
       method: 'POST',
       body: JSON.stringify(input),
