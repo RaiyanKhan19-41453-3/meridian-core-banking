@@ -34,8 +34,9 @@ public static class LoanMapper
         return new LoanSummaryDto(
             loan.Id, loan.Reference,
             loan.LoanProduct?.Code ?? string.Empty, loan.LoanProduct?.Name ?? string.Empty,
+            loan.LoanProduct?.Currency ?? "USD",
             loan.Principal, loan.AnnualInterestRate, loan.TermMonths,
-            loan.Status.ToString(), loan.CreditScore,
+            loan.Status.ToString(), loan.CreditScore, loan.CibScore, loan.ScoreSource,
             loan.Purpose, loan.AppliedAt, loan.DisbursedAt, loan.CompletedAt,
             paid, installments.Count,
             totalPaid, outstanding,

@@ -14,10 +14,12 @@ public record OverdraftTermsDto(
 
 public record ApplyOverdraftRequest(
     [Required] Guid AccountId,
-    [StringLength(10)] string ProductCode = "ODL-VAR",
-    [Range(typeof(decimal), "500", "100000", ErrorMessage = "Limit must be between 500 and 100,000.")]
+    [StringLength(20)] string ProductCode = "ODL-VAR",
+    [Range(typeof(decimal), "500", "3000000", ErrorMessage = "Limit must be between 500 and 3,000,000.")]
     decimal RequestedLimit = 1000m,
-    Guid? CollateralAccountId = null);
+    Guid? CollateralAccountId = null,
+    [Range(300, 850, ErrorMessage = "CIB score must be between 300 and 850.")]
+    int? CibScore = null);
 
 public record CloseOverdraftRequest([MaxLength(500)] string? Reason);
 
@@ -40,7 +42,9 @@ public record OverdraftFacilityDto(
     string ProductCode,
     Guid? CollateralAccountId,
     decimal? CollateralAmount,
-    string? CollateralAccountNumber);
+    string? CollateralAccountNumber,
+    int? CibScore,
+    string ScoreSource);
 
 public record OverdraftAccrualDto(
     long Id,

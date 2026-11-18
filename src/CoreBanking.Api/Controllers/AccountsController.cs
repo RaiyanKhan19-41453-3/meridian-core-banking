@@ -56,8 +56,25 @@ public class AccountsController : ControllerBase
         await KycGate.RequireVerifiedAsync(_db, userId.Value);
 
         var currency = req.Currency.Trim().ToUpperInvariant();
-        if (currency.Length != 3)
-            return BadRequest(new { error = "Currency must be a 3-letter ISO code." });
+        if (currency is not ("USD" or "EUR" or "GBP" or "KES" or "NGN" or "BDT"))
+            return BadRequest(new { error = "Currency must be one of USD, EUR, GBP, KES, NGN, BDT." });
+
+        // Product is selected by catalogue code and must match the account currency:
+        // BDT → SAV-BDT/CUR-BDT; USD → SAV-STD/CUR-PER. Other currencies (EUR/GBP/
+        // KES/NGN) have no priced product in this demo → no product (no fees/interest),
+        // but they remain fully usable for holds and transfers.
+        var productCode = currency switch
+        {
+            "BDT" => req.Type == AccountType.Savings ? "SAV-BDT" : "CUR-BDT",
+            "USD" => req.Type == AccountType.Savings ? "SAV-STD" : "CUR-PER",
+            _ => null
+        };
+        Guid? productId = null;
+        if (productCode is not null)
+            productId = await _db.Products.AsNoTracking()
+                .Where(p => p.Code == productCode && p.Currency == currency)
+                .Select(p => (Guid?)p.Id)
+                .SingleOrDefaultAsync();
 
         var account = new Account
         {
@@ -67,7 +84,8 @@ public class AccountsController : ControllerBase
             Currency = currency,
             Status = AccountStatus.Active,
             Balance = 0m,
-            Version = 0
+            Version = 0,
+            ProductId = productId
         };
 
         _db.Accounts.Add(account);
@@ -110,12 +128,12 @@ public class AccountsController : ControllerBase
                && (toExclusive == null || e.PostedAt < toExclusive)
             orderby e.PostedAt descending, e.Id descending
             select new StatementLine(e.Id, t.Id, t.Reference, t.Type.ToString(),
-                e.Amount, e.BalanceAfter, t.Description, e.PostedAt);
+                e.Amount, e.BalanceAfter, t.Description, e.PostedAt, account.Currency);
 
         if (string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
         {
             var rows = await baseQuery.Take(10_000).ToListAsync();
-            var csv = ToCsv(rows);
+            var csv = ToCsv(rows, account.Currency);
             return File(Encoding.UTF8.GetBytes(csv), "text/csv", $"statement-{account.AccountNumber}.csv");
         }
 
@@ -125,10 +143,10 @@ public class AccountsController : ControllerBase
         return Ok(new PagedResult<StatementLine>(items, page, pageSize, total, totalPages));
     }
 
-    private static string ToCsv(IReadOnlyList<StatementLine> rows)
+    private static string ToCsv(IReadOnlyList<StatementLine> rows, string currency)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("posted_at,reference,type,amount,balance_after,description");
+        sb.AppendLine($"posted_at,reference,type,amount,balance_after,currency,description");
         foreach (var r in rows)
         {
             sb.Append(CsvCell(r.PostedAt.ToString("O"))).Append(',')
@@ -136,6 +154,7 @@ public class AccountsController : ControllerBase
               .Append(CsvCell(r.Type)).Append(',')
               .Append(r.Amount.ToString("F4")).Append(',')
               .Append(r.BalanceAfter.ToString("F4")).Append(',')
+              .Append(CsvCell(currency)).Append(',')
               .Append(CsvCell(r.Description)).AppendLine();
         }
         return sb.ToString();

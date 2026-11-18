@@ -10,10 +10,12 @@ public record LoanProductDto(
 
 public record ApplyLoanRequest(
     [Required, MaxLength(20)] string LoanProductCode,
-    [Range(typeof(decimal), "100", "1000000")] decimal Principal,
+    [Range(typeof(decimal), "100", "100000000")] decimal Principal,
     [Range(1, 360)] int TermMonths,
     [MaxLength(500)] string? Purpose,
-    [Required] Guid DisbursementAccountId);
+    [Required] Guid DisbursementAccountId,
+    [Range(300, 850, ErrorMessage = "CIB score must be between 300 and 850.")]
+    int? CibScore = null);
 
 public record LoanInstallmentDto(
     int InstallmentNo, DateTime DueDate,
@@ -22,8 +24,9 @@ public record LoanInstallmentDto(
 
 public record LoanSummaryDto(
     Guid Id, string Reference, string ProductCode, string ProductName,
+    string Currency,
     decimal Principal, decimal AnnualInterestRate, int TermMonths,
-    string Status, int CreditScore,
+    string Status, int CreditScore, int? CibScore, string ScoreSource,
     string Purpose, DateTime AppliedAt, DateTime? DisbursedAt, DateTime? CompletedAt,
     int InstallmentsPaid, int InstallmentsTotal,
     decimal TotalPaid, decimal TotalOutstanding,
@@ -40,5 +43,7 @@ public record LoanDetailDto(
 public record ApplyLoanResponse(
     string Decision,          // "Approved" | "Rejected"
     int CreditScore,
+    int? CibScore,
+    string ScoreSource,
     string Reason,
     LoanDetailDto Loan);

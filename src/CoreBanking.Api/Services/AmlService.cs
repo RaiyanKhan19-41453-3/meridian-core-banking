@@ -12,16 +12,18 @@ namespace CoreBanking.Api.Services;
 /// </summary>
 public class AmlService
 {
-    public const decimal HighValueThreshold = 10_000m;
-    public const decimal Velocity24hLimit = 25_000m;
+    public const decimal HighValueThresholdUsd = 10_000m;  // ≈ ৳1.2m at ~119 BDT/USD
+    public const decimal Velocity24hLimitUsd = 25_000m;    // ≈ ৳3.0m
     public const int BurstWindowCount = 5;
 
     private readonly AppDbContext _db;
+    private readonly GlService _gl;
     private readonly ILogger<AmlService> _logger;
 
-    public AmlService(AppDbContext db, ILogger<AmlService> logger)
+    public AmlService(AppDbContext db, GlService gl, ILogger<AmlService> logger)
     {
         _db = db;
+        _gl = gl;
         _logger = logger;
     }
 
@@ -43,12 +45,14 @@ public class AmlService
             if (customerEntries.Count == 0) return;
 
             // Rule 1 (either direction, CTR-threshold style): one alert per transaction.
-            // Pivot = the debiting customer leg (outbound), else the crediting one (inbound).
+            // Thresholds are USD equivalents — convert local amounts using the FX rate
+            // so ৳10,000 (≈ $84) never raises a CTR alert while $10,000 always does.
             var pivot = customerEntries.FirstOrDefault(e => e.Amount < 0m)
                         ?? customerEntries.OrderByDescending(e => e.Amount).First();
-            if (Math.Abs(pivot.Amount) >= HighValueThreshold)
+            var pivotAccount = customerAccounts.Single(a => a.Id == pivot.AccountId);
+            var pivotUsdRate = await _gl.UsdRateForAsync(tx.CreatedAt, pivotAccount.Currency);
+            if (Math.Abs(pivot.Amount) * pivotUsdRate >= HighValueThresholdUsd)
             {
-                var pivotAccount = customerAccounts.Single(a => a.Id == pivot.AccountId);
                 _db.AmlAlerts.Add(new AmlAlert
                 {
                     AlertType = AmlAlertType.HighValue,
@@ -75,7 +79,8 @@ public class AmlService
                 var out24h = await _db.LedgerEntries
                     .Where(e => e.AccountId == account.Id && e.Amount < 0m && e.PostedAt >= since24h)
                     .SumAsync(e => (decimal?)e.Amount) ?? 0m;
-                if (-out24h >= Velocity24hLimit && !await HasOpenAlertAsync(account.UserId, AmlAlertType.Velocity24h, since24h))
+                if (-out24h * await _gl.UsdRateForAsync(tx.CreatedAt, account.Currency) >= Velocity24hLimitUsd
+                    && !await HasOpenAlertAsync(account.UserId, AmlAlertType.Velocity24h, since24h))
                 {
                     _db.AmlAlerts.Add(new AmlAlert
                     {

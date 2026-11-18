@@ -123,6 +123,7 @@ public class BatchService
             .Include(a => a.Product)
             .Where(a => a.Status == AccountStatus.Active
                         && a.ProductId != null
+                        && a.Product!.Currency == a.Currency
                         && a.Product!.AnnualInterestRate > 0m
                         && a.Balance > 0m
                         && !a.AccountNumber.StartsWith("SYS-"))
@@ -421,6 +422,7 @@ public class BatchService
         {
             var product = feeProducts.GetValueOrDefault(account.ProductId!.Value);
             if (product is null) continue;
+            if (product.Currency != account.Currency) continue; // never charge a foreign-currency fee
             if (account.Balance >= product.FeeWaiverMinBalance) continue; // waived
 
             var reference = $"FEE-{period}-{account.AccountNumber}";
@@ -481,28 +483,51 @@ public class BatchService
         Func<BatchRun, BatchCounters, Task<object>> body, Guid? adminId, string? ip)
     {
         runDate = DateTime.SpecifyKind(runDate.Date, DateTimeKind.Utc);
+
         var existing = await _db.BatchRuns.AsNoTracking()
             .SingleOrDefaultAsync(b => b.JobType == jobType && b.RunDate == runDate);
-        if (existing is not null)
+
+        // Only Succeeded runs are a true replay. A Partial/Failed run was aborted by a
+        // crash, DB outage or a partially completed window — the per-item postings are
+        // deterministic, so re-attempting the same (job, date) is safe.
+        if (existing?.Status == BatchRunStatus.Succeeded)
             return new BatchResult(existing, Replayed: true);
 
-        var run = new BatchRun
+        BatchRun run;
+        if (existing is not null)
         {
-            JobType = jobType,
-            RunDate = runDate.Date,
-            Status = BatchRunStatus.Partial,
-            StartedAt = DateTime.UtcNow
-        };
-        _db.BatchRuns.Add(run);
-        try
-        {
-            await _db.SaveChangesAsync(); // claim the (job, date) slot
+            // Re-run the interrupted slot instead of returning it forever.
+            run = await _db.BatchRuns.SingleAsync(b => b.Id == existing.Id);
+            run.Status = BatchRunStatus.Partial;
+            run.StartedAt = DateTime.UtcNow;
+            run.FinishedAt = null;
+            run.ItemsProcessed = 0;
+            run.ItemsFailed = 0;
+            run.Errors = null;
+            run.Summary = null;
+            await _db.SaveChangesAsync();
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" })
+        else
         {
-            var raced = await _db.BatchRuns.AsNoTracking()
-                .SingleAsync(b => b.JobType == jobType && b.RunDate == runDate);
-            return new BatchResult(raced, Replayed: true);
+            run = new BatchRun
+            {
+                JobType = jobType,
+                RunDate = runDate.Date,
+                Status = BatchRunStatus.Partial,
+                StartedAt = DateTime.UtcNow
+            };
+            _db.BatchRuns.Add(run);
+            try
+            {
+                await _db.SaveChangesAsync(); // claim the (job, date) slot
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" })
+            {
+                var raced = await _db.BatchRuns.AsNoTracking()
+                    .SingleAsync(b => b.JobType == jobType && b.RunDate == runDate);
+                _db.ChangeTracker.Clear();
+                return new BatchResult(raced, Replayed: true);
+            }
         }
 
         var counters = new BatchCounters();

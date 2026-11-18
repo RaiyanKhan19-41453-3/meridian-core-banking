@@ -285,6 +285,7 @@ public class AdminController : ControllerBase
             l.Reference,
             customer = emails.TryGetValue(l.UserId, out var e) ? e : "?",
             product = l.LoanProduct.Code,
+            currency = l.LoanProduct.Currency,
             l.Principal,
             l.AnnualInterestRate,
             l.TermMonths,

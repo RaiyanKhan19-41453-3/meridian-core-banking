@@ -60,11 +60,11 @@ public class LoanService
                 "You already have an open loan. Complete or cancel it before applying again.");
 
         var profile = await _db.CustomerProfiles.SingleAsync(p => p.UserId == userId);
-        var score = CreditScoring.Score(profile, req.Principal);
+        var (score, cibScore, source) = CreditScoring.Score(profile, req.Principal, req.CibScore);
         var approved = score >= product.MinCreditScore;
         var reason = approved
-            ? $"Score {score} ≥ {product.MinCreditScore} ({product.Code} minimum)"
-            : $"Score {score} below {product.MinCreditScore} ({product.Code} minimum)";
+            ? $"Score {score} ≥ {product.MinCreditScore} ({product.Code} minimum, {source})"
+            : $"Score {score} below {product.MinCreditScore} ({product.Code} minimum, {source})";
 
         var loan = new Loan
         {
@@ -76,6 +76,8 @@ public class LoanService
             TermMonths = req.TermMonths,
             OriginationFee = product.OriginationFee,
             CreditScore = score,
+            CibScore = cibScore,
+            ScoreSource = source,
             DecisionReason = reason,
             Status = approved ? LoanStatus.Approved : LoanStatus.Rejected,
             DisbursementAccountId = account.Id,
@@ -107,7 +109,7 @@ public class LoanService
         }
 
         _audit.Write(userId, approved ? "loan.approved" : "loan.rejected", nameof(Loan), loan.Id.ToString(),
-            new { loan.Reference, product = product.Code, req.Principal, req.TermMonths, score }, ip);
+            new { loan.Reference, product = product.Code, req.Principal, req.TermMonths, score, cibScore, source }, ip);
         await _db.SaveChangesAsync();
         return loan;
     }
@@ -266,7 +268,11 @@ public class LoanService
 
             var outcome = await RunRepaymentItem(counters, $"repay:{loan.Reference}:{installment.InstallmentNo}", async () =>
             {
-                var clearing = await EnsureClearingAccountAsync("USD", "LOANCLR");
+                var currency = await _db.Accounts.AsNoTracking()
+                    .Where(a => a.Id == loan.DisbursementAccountId)
+                    .Select(a => a.Currency)
+                    .SingleAsync();
+                var clearing = await EnsureClearingAccountAsync(currency, "LOANCLR");
                 var locked = await LockAccountsAsync(new[] { loan.DisbursementAccountId, clearing.Id });
                 var byId = locked.ToDictionary(a => a.Id);
                 var customer = byId[loan.DisbursementAccountId];
@@ -310,7 +316,8 @@ public class LoanService
                 _db.LedgerEntries.AddRange(entries);
 
                 // GL: Dr Customer Deposits (total) · Cr Loans Receivable (principal) · Cr Loan Interest Income (interest)
-                var usd = 1.00000000m; // USD v1
+                // Foreign-currency legs are normalized to the USD-denominated GL via the seeded FX rate.
+                var usd = await _gl.UsdRateForAsync(date, customer.Currency);
                 await _gl.AttachRawAsync(txEntry.Id, now, txEntry.Description,
                     new[]
                     {
@@ -369,7 +376,10 @@ public class LoanService
             .ExecuteUpdateAsync(s => s.SetProperty(i => i.Status, LoanInstallmentStatus.Overdue));
     }
 
-    public const decimal LateFeeAmount = 25.00m;
+    public const decimal LateFeeAmount = 25.00m;      // USD
+    public const decimal LateFeeAmountBdt = 3000.00m; // BDT (≈ USD 25 at ~119 BDT/USD)
+
+    private static decimal LateFeeFor(string currency) => currency == "BDT" ? LateFeeAmountBdt : LateFeeAmount;
 
     /// <summary>
     /// Flat late fee ($25) per failed installment per calendar month.
@@ -387,13 +397,18 @@ public class LoanService
 
             await using var tx = await _db.Database.BeginTransactionAsync();
 
-            var clearing = await EnsureClearingAccountAsync("USD", "FEECLR");
+            var currency = await _db.Accounts.AsNoTracking()
+                .Where(a => a.Id == loan.DisbursementAccountId)
+                .Select(a => a.Currency)
+                .SingleAsync();
+            var clearing = await EnsureClearingAccountAsync(currency, "FEECLR");
             var locked = await LockAccountsAsync(new[] { loan.DisbursementAccountId, clearing.Id });
             var byId = locked.ToDictionary(a => a.Id);
             var customer = byId[loan.DisbursementAccountId];
             var income = byId[clearing.Id];
 
             var now = DateTime.UtcNow;
+            var fee = LateFeeFor(currency);
             var txEntry = new Transaction
             {
                 Reference = reference,
@@ -401,27 +416,27 @@ public class LoanService
                 Type = TransactionType.Fee,
                 Status = TransactionStatus.Posted,
                 CreatedBy = adminId ?? loan.UserId,
-                Description = $"Late payment fee — loan {loan.Reference} installment {installment.InstallmentNo}",
+                Description = $"Late payment fee — loan {loan.Reference} installment {installment.InstallmentNo} ({fee:F2} {currency})",
                 CreatedAt = now
             };
 
             var entries = new List<LedgerEntry>
             {
-                new() { TransactionId = txEntry.Id, AccountId = customer.Id, Amount = -LateFeeAmount,
-                        BalanceAfter = customer.Balance - LateFeeAmount, PostedAt = now },
-                new() { TransactionId = txEntry.Id, AccountId = income.Id, Amount = LateFeeAmount,
-                        BalanceAfter = income.Balance + LateFeeAmount, PostedAt = now },
+                new() { TransactionId = txEntry.Id, AccountId = customer.Id, Amount = -fee,
+                        BalanceAfter = customer.Balance - fee, PostedAt = now },
+                new() { TransactionId = txEntry.Id, AccountId = income.Id, Amount = fee,
+                        BalanceAfter = income.Balance + fee, PostedAt = now },
             };
 
             _db.Transactions.Add(txEntry);
             _db.LedgerEntries.AddRange(entries);
             await _gl.AttachAsync(txEntry, entries, byId, customer.Currency);
 
-            customer.Balance -= LateFeeAmount; customer.Version += 1;
-            income.Balance += LateFeeAmount; income.Version += 1;
+            customer.Balance -= fee; customer.Version += 1;
+            income.Balance += fee; income.Version += 1;
 
             _audit.Write(null, "loan.late_fee_charged", nameof(Transaction), txEntry.Id.ToString(),
-                new { reference, loan = loan.Reference, installment.InstallmentNo, amount = LateFeeAmount }, ip);
+                new { reference, loan = loan.Reference, installment.InstallmentNo, amount = fee, currency }, ip);
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
         }

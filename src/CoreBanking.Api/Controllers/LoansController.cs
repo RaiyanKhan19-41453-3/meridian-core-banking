@@ -59,7 +59,7 @@ public class LoansController : ControllerBase
         var loan = await _loans.ApplyAsync(userId.Value, req, ClientIp);
         var detail = await LoadDetailAsync(loan.Id);
         return Ok(new ApplyLoanResponse(
-            loan.Status.ToString(), loan.CreditScore, loan.DecisionReason, detail));
+            loan.Status.ToString(), loan.CreditScore, loan.CibScore, loan.ScoreSource, loan.DecisionReason, detail));
     }
 
     /// <summary>My loans, newest first.</summary>

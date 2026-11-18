@@ -45,19 +45,20 @@ public class LedgerService
     private decimal MaxDailyOutflow =>
         decimal.TryParse(_config["Limits:MaxDailyOutflow"], out var v) ? v : 50_000m;
 
+    // Amount caps are defined in USD terms; scale them into the movement currency
+    // using the live FX rate from the same table the GL uses (no hardcoded drift).
+    private async Task<decimal> MaxSingleFor(string? currency) =>
+        MaxSingleTransaction / await _gl.UsdRateForAsync(DateTime.UtcNow, currency);
+    private async Task<decimal> MaxDailyFor(string? currency) =>
+        MaxDailyOutflow / await _gl.UsdRateForAsync(DateTime.UtcNow, currency);
+
     // ---------- public API ----------
 
     public async Task<LedgerResult> DepositAsync(Guid userId, Guid accountId, decimal amount,
         string? description, string idempotencyKey, string requestHash, string? ip)
     {
-        ValidateAmount(amount);
         ValidateIdempotencyKey(idempotencyKey);
         await RequireVerifiedAsync(userId);
-
-        await using var tx = await _db.Database.BeginTransactionAsync();
-
-        var replay = await TryReplayAsync(idempotencyKey, requestHash);
-        if (replay is not null) return replay;
 
         var customerProbe = await _db.Accounts.AsNoTracking()
             .Where(a => a.Id == accountId)
@@ -66,6 +67,12 @@ public class LedgerService
         if (customerProbe is null) throw BankException.NotFound("account_not_found", "Account does not exist.");
         if (customerProbe.UserId != userId)
             throw BankException.Forbidden("not_account_owner", "You do not own this account.");
+        await ValidateAmount(amount, customerProbe.Currency);
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+
+        var replay = await TryReplayAsync(idempotencyKey, requestHash, userId);
+        if (replay is not null) return replay;
 
         var omnibus = await EnsureSystemOmnibusAsync(customerProbe.Currency);
         var locked = await LockAccountsAsync(new[] { customerProbe.Id, omnibus.Id });
@@ -89,7 +96,7 @@ public class LedgerService
         _audit.Write(userId, "money.deposit", nameof(Transaction), transaction.Id.ToString(),
             new { reference = idempotencyKey, amount, currency = customer.Currency, to = customer.AccountNumber }, ip);
 
-        if (await TryCommitAsync(tx, idempotencyKey, requestHash) is { } raced) return raced;
+        if (await TryCommitAsync(tx, idempotencyKey, requestHash, userId) is { } raced) return raced;
         await _aml.EvaluateAsync(transaction, byId.Values.ToList(), ip);
         return new LedgerResult(transaction, entries, Replayed: false, Overdraft: false);
     }
@@ -97,7 +104,6 @@ public class LedgerService
     public async Task<LedgerResult> WithdrawAsync(Guid userId, Guid accountId, decimal amount,
         string? description, string idempotencyKey, string requestHash, string? ip)
     {
-        ValidateAmount(amount);
         ValidateIdempotencyKey(idempotencyKey);
         await RequireVerifiedAsync(userId);
 
@@ -108,6 +114,7 @@ public class LedgerService
         if (probe is null) throw BankException.NotFound("account_not_found", "Account does not exist.");
         if (probe.UserId != userId)
             throw BankException.Forbidden("not_account_owner", "You do not own this account.");
+        await ValidateAmount(amount, probe.Currency);
 
         var omnibus = await EnsureSystemOmnibusAsync(probe.Currency);
 
@@ -119,7 +126,6 @@ public class LedgerService
     public async Task<LedgerResult> TransferAsync(Guid userId, Guid fromAccountId, string toAccountNumber,
         decimal amount, string? description, string idempotencyKey, string requestHash, string? ip)
     {
-        ValidateAmount(amount);
         ValidateIdempotencyKey(idempotencyKey);
         await RequireVerifiedAsync(userId);
         if (string.IsNullOrWhiteSpace(toAccountNumber))
@@ -132,6 +138,7 @@ public class LedgerService
         if (fromProbe is null) throw BankException.NotFound("account_not_found", "Source account does not exist.");
         if (fromProbe.UserId != userId)
             throw BankException.Forbidden("not_account_owner", "You do not own the source account.");
+        await ValidateAmount(amount, fromProbe.Currency);
 
         var to = await _db.Accounts.AsNoTracking()
             .Where(a => a.AccountNumber == toAccountNumber.Trim().ToUpperInvariant())
@@ -139,6 +146,8 @@ public class LedgerService
             .SingleOrDefaultAsync();
         if (to is null) throw BankException.NotFound("destination_not_found", "Destination account does not exist.");
         if (to.Id == fromAccountId) throw BankException.BadRequest("same_account", "Source and destination are the same account.");
+        if (toAccountNumber.Trim().StartsWith("SYS-", StringComparison.OrdinalIgnoreCase))
+            throw BankException.BadRequest("system_account", "System accounts are settled only by bank processes.");
         if (to.Currency != fromProbe.Currency)
             throw BankException.Unprocessable("fx_not_supported",
                 $"Cross-currency movement rejected ({fromProbe.Currency} → {to.Currency}). Same currency only.");
@@ -156,7 +165,7 @@ public class LedgerService
 
         await using var tx = await _db.Database.BeginTransactionAsync();
 
-        var replay = await TryReplayAsync(idempotencyKey, requestHash);
+        var replay = await TryReplayAsync(idempotencyKey, requestHash, adminId);
         if (replay is not null) return replay;
 
         var original = await _db.Transactions
@@ -217,7 +226,7 @@ public class LedgerService
         _audit.Write(adminId, "transaction.reverse", nameof(Transaction), original.Id.ToString(),
             new { originalReference = original.Reference, reversalReference = reversal.Reference, overdraft }, ip);
 
-        if (await TryCommitAsync(tx, idempotencyKey, requestHash) is { } raced) return raced;
+        if (await TryCommitAsync(tx, idempotencyKey, requestHash, adminId) is { } raced) return raced;
         return new LedgerResult(reversal, entries, Replayed: false, Overdraft: overdraft);
     }
 
@@ -234,7 +243,7 @@ public class LedgerService
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
 
-        var replay = await TryReplayAsync(idempotencyKey, requestHash);
+        var replay = await TryReplayAsync(idempotencyKey, requestHash, actorId);
         if (replay is not null) return replay;
 
         var locked = await LockAccountsAsync(new[] { fromId, toId });
@@ -277,9 +286,10 @@ public class LedgerService
             }
 
             var outToday = await GetOutflowTodayAsync(from.Id);
-            if (outToday + amount > MaxDailyOutflow)
+            var dailyLimit = await MaxDailyFor(from.Currency);
+            if (outToday + amount > dailyLimit)
                 throw BankException.Unprocessable("daily_limit_exceeded",
-                    $"Daily outflow limit would be exceeded (used {outToday:F2} + {amount:F2} > {MaxDailyOutflow:F2} {from.Currency}).");
+                    $"Daily outflow limit would be exceeded (used {outToday:F2} + {amount:F2} > {dailyLimit:F2} {from.Currency}).");
         }
 
         var transaction = BuildTransaction(idempotencyKey, requestHash, type, actorId, description);
@@ -297,14 +307,14 @@ public class LedgerService
             transaction.Id.ToString(),
             new { reference = idempotencyKey, amount, currency = from.Currency, from = from.AccountNumber, to = to.AccountNumber }, ip);
 
-        if (await TryCommitAsync(tx, idempotencyKey, requestHash) is { } raced) return raced;
+        if (await TryCommitAsync(tx, idempotencyKey, requestHash, actorId) is { } raced) return raced;
         await _aml.EvaluateAsync(transaction, byId.Values.ToList(), ip);
         return new LedgerResult(transaction, entries, Replayed: false, Overdraft: false);
     }
 
     // ---------- helpers ----------
 
-    private async Task<LedgerResult?> TryReplayAsync(string idempotencyKey, string requestHash)
+    private async Task<LedgerResult?> TryReplayAsync(string idempotencyKey, string requestHash, Guid actorId)
     {
         var existing = await _db.Transactions
             .AsNoTracking()
@@ -312,7 +322,9 @@ public class LedgerService
             .SingleOrDefaultAsync(t => t.Reference == idempotencyKey);
         if (existing is null) return null;
 
-        if (existing.RequestHash != requestHash)
+        // Idempotency keys are scoped to the actor — another user replaying the same key
+        // gets the "different payload" conflict rather than someone else's financial history.
+        if (existing.CreatedBy != actorId || existing.RequestHash != requestHash)
             throw BankException.Conflict("idempotency_key_reuse",
                 "This Idempotency-Key was already used with a different payload.");
 
@@ -321,7 +333,7 @@ public class LedgerService
 
     /// <summary>Returns a replayed result if a racing request won the unique-index race; otherwise commits and returns null.</summary>
     private async Task<LedgerResult?> TryCommitAsync(
-        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx, string key, string requestHash)
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx, string key, string requestHash, Guid actorId)
     {
         try
         {
@@ -336,6 +348,9 @@ public class LedgerService
                 .AsNoTracking()
                 .Include(t => t.Entries)
                 .SingleAsync(t => t.Reference == key);
+            if (existing.CreatedBy != actorId || existing.RequestHash != requestHash)
+                throw BankException.Conflict("idempotency_key_reuse",
+                    "This Idempotency-Key was already used with a different payload.");
             return new LedgerResult(existing, existing.Entries.ToList(),
                 Replayed: true, Overdraft: false);
         }
@@ -440,16 +455,16 @@ public class LedgerService
         return account;
     }
 
-    private decimal ValidateAmount(decimal amount)
+    private async Task ValidateAmount(decimal amount, string currency)
     {
         if (amount <= 0m)
             throw BankException.BadRequest("invalid_amount", "Amount must be positive.");
         if (decimal.Round(amount, 4) != amount)
             throw BankException.BadRequest("invalid_amount_precision", "Amount may have at most 4 decimal places.");
-        if (amount > MaxSingleTransaction)
+        var max = await MaxSingleFor(currency);
+        if (amount > max)
             throw BankException.BadRequest("amount_exceeds_limit",
-                $"Amount exceeds the single-transaction limit of {MaxSingleTransaction:F2}.");
-        return amount;
+                $"Amount exceeds the single-transaction limit of {max:F2} {currency}.");
     }
 
     private static void ValidateIdempotencyKey(string? key)
