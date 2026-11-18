@@ -51,6 +51,9 @@ check 'schedule has 12 installments' 12 "$(echo "$APP2" | python3 -c "import sys
 check 'installment principals sum to principal' 5000.0 "$(echo "$APP2" | python3 -c "import sys,json; d=json.load(sys.stdin); print(round(sum(i['principal'] for i in d['loan']['schedule']),4))")"
 EMI=$(echo "$APP2" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d['loan']['schedule']; print(s[0]['total'])")
 echo "EMI: $EMI"
+# PLN-PER = 18% p.a. → monthly 1.5%; 5,000 over 12 months → EMI ≈ 458.41
+python3 -c "import sys; sys.exit(0 if abs(float('$EMI') - 458.41) < 0.02 else 1)" \
+  && check 'EMI matches 18% p.a. amortization' ok ok || check 'EMI matches 18% p.a. amortization' fail "$EMI"
 
 echo '=== 4. accept & disburse (fee deducted, GL posts) ==='
 BEFORE=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3 -c "import sys,json; print([a['balance'] for a in json.load(sys.stdin) if a['id']=='$NEW_ACC'][0])")

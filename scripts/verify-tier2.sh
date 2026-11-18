@@ -39,6 +39,9 @@ ACCRUAL_COUNT=$(docker exec corebanking-postgres psql -U corebanking -d corebank
 check 'exactly one accrual row for savings' 1 "$ACCRUAL_COUNT"
 ACCRUED=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc 'select amount from interest_accruals order by id desc limit 1;')
 echo "accrued today: $ACCRUED"
+# SAV-STD pays 2.5% p.a. on $10,000 → 10000 * 0.025 / 365 = 0.6849/day
+python3 -c "import sys; sys.exit(0 if abs(float('$ACCRUED') - 0.6849) < 0.0002 else 1)" \
+  && check 'savings interest = 10,000 x 2.5% / 365' ok ok || check 'savings interest amount' fail "$ACCRUED"
 
 echo '=== GL accrual journal posted (5001 debit / 2101 credit) ==='
 ACCRUAL_GL=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select count(*) from gl_journals j join gl_entries e on e.journal_id = j.id join gl_accounts g on g.id = e.gl_account_id where g.code = '5001';")
