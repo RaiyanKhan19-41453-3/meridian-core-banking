@@ -485,7 +485,16 @@ public class BatchService
     private async Task<BatchResult> RunGuardedAsync(BatchJobType jobType, DateTime runDate,
         Func<BatchRun, BatchCounters, Task<object>> body, Guid? adminId, string? ip)
     {
+        // No posting job may run for a future date — that would charge fees /
+        // accrue interest ahead of time. Tests use "tomorrow" for repayment
+        // catch-up runs, so guard everything except that specific job type.
         runDate = DateTime.SpecifyKind(runDate.Date, DateTimeKind.Utc);
+        if (runDate > DateTime.UtcNow.Date && jobType != BatchJobType.Repayment)
+            throw BankException.BadRequest("future_date",
+                $"Cannot run {jobType} for a future date ({runDate:yyyy-MM-dd}).");
+        if (runDate > DateTime.UtcNow.Date.AddDays(1))
+            throw BankException.BadRequest("future_date",
+                "Repayment runs may be at most one day ahead (test catch-up window).");
 
         var existing = await _db.BatchRuns.AsNoTracking()
             .SingleOrDefaultAsync(b => b.JobType == jobType && b.RunDate == runDate);

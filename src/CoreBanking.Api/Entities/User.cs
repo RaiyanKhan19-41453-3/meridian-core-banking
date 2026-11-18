@@ -18,6 +18,9 @@ public class User
     public string? TwoFactorSecret { get; set; }
     public bool TwoFactorEnabled { get; set; }
 
+    /// <summary>Last consumed TOTP code — prevents replay of a leaked/observed code.</summary>
+    public string? LastTotpCode { get; set; }
+
     // --- Brute-force protection ---
     public int FailedLoginAttempts { get; set; }
     public DateTime? LockoutEnd { get; set; }

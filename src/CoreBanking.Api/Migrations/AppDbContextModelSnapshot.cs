@@ -1313,6 +1313,10 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("full_name");
 
+                    b.Property<string>("LastTotpCode")
+                        .HasColumnType("text")
+                        .HasColumnName("last_totp_code");
+
                     b.Property<DateTime?>("LockoutEnd")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lockout_end");
