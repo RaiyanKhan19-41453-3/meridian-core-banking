@@ -120,7 +120,8 @@ public class AuthController : ControllerBase
         {
             if (string.IsNullOrWhiteSpace(req.TotpCode))
                 throw BankException.Unprocessable("totp_required", "Two-factor authentication code is required.");
-            if (!TotpService.Validate(user.TwoFactorSecret!, req.TotpCode))
+            if (!TotpService.Validate(user.TwoFactorSecret!, req.TotpCode)
+                || req.TotpCode.Trim() == user.LastTotpCode)
             {
                 user.FailedLoginAttempts += 1;
                 if (user.FailedLoginAttempts >= MaxFailedAttempts)
@@ -130,8 +131,10 @@ public class AuthController : ControllerBase
                 }
                 _audit.Write(user.Id, "auth.totp_failed", nameof(User), user.Id.ToString(), null, ClientIp);
                 await _db.SaveChangesAsync();
-                throw BankException.Unprocessable("invalid_totp", "Two-factor authentication code is invalid.");
+                throw BankException.Unprocessable("invalid_totp",
+                    "Two-factor authentication code is invalid or has already been used.");
             }
+            user.LastTotpCode = req.TotpCode.Trim();
         }
 
         user.FailedLoginAttempts = 0;
@@ -228,12 +231,15 @@ public class AuthController : ControllerBase
     {
         var user = await LoadCurrentUserAsync(asNoTracking: false);
         if (user is null) return Unauthorized();
+        if (user.TwoFactorEnabled)
+            throw BankException.Conflict("totp_already_enabled", "Two-factor authentication is already enabled.");
         if (string.IsNullOrWhiteSpace(user.TwoFactorSecret))
             throw BankException.BadRequest("totp_not_setup", "Call 2fa/setup first.");
         if (!TotpService.Validate(user.TwoFactorSecret, req.Code))
             throw BankException.Unprocessable("invalid_totp", "Code is invalid or expired.");
 
         user.TwoFactorEnabled = true;
+        user.LastTotpCode = req.Code.Trim(); // the setup code cannot be reused to log in
         _audit.Write(user.Id, "auth.totp_enabled", nameof(User), user.Id.ToString(), null, ClientIp);
         await _db.SaveChangesAsync();
         return NoContent();
@@ -247,11 +253,12 @@ public class AuthController : ControllerBase
         if (user is null) return Unauthorized();
         if (!user.TwoFactorEnabled || string.IsNullOrWhiteSpace(user.TwoFactorSecret))
             throw BankException.BadRequest("totp_not_enabled", "Two-factor authentication is not enabled.");
-        if (!TotpService.Validate(user.TwoFactorSecret, req.Code))
-            throw BankException.Unprocessable("invalid_totp", "Code is invalid or expired.");
+        if (!TotpService.Validate(user.TwoFactorSecret, req.Code) || req.Code.Trim() == user.LastTotpCode)
+            throw BankException.Unprocessable("invalid_totp", "Code is invalid or has already been used.");
 
         user.TwoFactorEnabled = false;
         user.TwoFactorSecret = null;
+        user.LastTotpCode = null;
         await _tokens.RevokeAllForUserAsync(user.Id); // security downgrade — force re-login
         _audit.Write(user.Id, "auth.totp_disabled", nameof(User), user.Id.ToString(), null, ClientIp);
         await _db.SaveChangesAsync();
