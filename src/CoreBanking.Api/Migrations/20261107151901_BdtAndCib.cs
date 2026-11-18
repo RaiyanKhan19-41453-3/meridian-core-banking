@@ -94,6 +94,15 @@ namespace CoreBanking.Api.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Remove the Bangladesh seed rows before dropping the columns that
+            // describe them; ODL-*-BDT codes exceed the old varchar(10) limit.
+            migrationBuilder.Sql(@"
+                DELETE FROM products WHERE code IN ('SAV-BDT', 'CUR-BDT');
+                DELETE FROM loan_products WHERE code IN ('PLN-BDT', 'HML-BDT');
+                DELETE FROM fx_rates WHERE from_currency = 'BDT';
+                UPDATE overdraft_facilities SET product_code = 'ODL-VAR' WHERE product_code IN ('ODL-VAR-BDT', 'ODL-SEC-BDT');
+            ");
+
             migrationBuilder.DropColumn(
                 name: "currency",
                 table: "products");

@@ -40,11 +40,13 @@ public class OverdraftService
 
     private readonly AppDbContext _db;
     private readonly AuditService _audit;
+    private readonly GlService _gl;
 
-    public OverdraftService(AppDbContext db, AuditService audit)
+    public OverdraftService(AppDbContext db, AuditService audit, GlService gl)
     {
         _db = db;
         _audit = audit;
+        _gl = gl;
     }
 
     public static IReadOnlyList<OverdraftTermsDto> Terms() => new[]
@@ -109,7 +111,8 @@ public class OverdraftService
                 $"Unsecured limit must be between {minLimit:F0} and {maxLimit:F0} {currency}.");
 
         var profile = await _db.CustomerProfiles.SingleAsync(p => p.UserId == userId);
-        var (score, cibScore, source) = CreditScoring.Score(profile, req.RequestedLimit, req.CibScore);
+        var usdRate = await _gl.UsdRateForAsync(DateTime.UtcNow, account.Currency);
+        var (score, cibScore, source) = CreditScoring.Score(profile, req.RequestedLimit, req.CibScore, usdRate);
         var approved = score >= MinCreditScore;
         var reason = approved
             ? $"Score {score} ≥ {MinCreditScore} ({productCode} minimum, {source})"
@@ -154,7 +157,7 @@ public class OverdraftService
         var requiredCollateral = Math.Round(req.RequestedLimit / SecuredLtvRatio, 4, MidpointRounding.AwayFromZero);
         var approved = collateral.Balance >= requiredCollateral;
         var profile = await _db.CustomerProfiles.SingleAsync(p => p.UserId == userId);
-        var (score, cibScore, source) = CreditScoring.Score(profile, 0m, req.CibScore); // informational only for secured approvals
+        var (score, cibScore, source) = CreditScoring.Score(profile, 0m, req.CibScore); // informational only for secured approvals; 0 exposure
         var reason = approved
             ? $"Collateral {collateral.Balance:F2} covers required {requiredCollateral:F2} (limit ≤ 90% of pledge)"
             : $"Collateral {collateral.Balance:F2} below required {requiredCollateral:F2} (limit ≤ 90% of pledge)";

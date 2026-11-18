@@ -34,10 +34,13 @@ public static class CreditScoring
     public static int Score(CustomerProfile profile, decimal principal) =>
         ScoreInternal(profile, principal);
 
-    /// <summary>Score for the requested principal with an optional bureau (CIB) score.</summary>
-    public static (int FinalScore, int? CibScore, string Source) Score(CustomerProfile profile, decimal principal, int? cibScore)
+    /// <summary>Score for the requested principal with an optional bureau (CIB) score.
+    /// <paramref name="usdRate"/> converts the local-currency principal into USD
+    /// so exposure haircuts mean the same thing in every currency.</summary>
+    public static (int FinalScore, int? CibScore, string Source) Score(
+        CustomerProfile profile, decimal principal, int? cibScore, decimal usdRate = 1m)
     {
-        var internalScore = ScoreInternal(profile, principal);
+        var internalScore = ScoreInternal(profile, principal * usdRate);
         return Blend(internalScore, cibScore);
     }
 

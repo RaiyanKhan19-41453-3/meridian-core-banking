@@ -32,6 +32,7 @@ public static class GlCodes
         CustomerDeposits => "Customer Deposits",
         InterestPayable => "Interest Payable",
         FeeIncome => "Fee & Commission Income",
+        InterestReceivable => "Interest Receivable",
         LoanInterestIncome => "Loan Interest Income",
         InterestExpense => "Interest Expense",
         _ => code

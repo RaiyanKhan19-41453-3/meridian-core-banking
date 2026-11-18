@@ -60,7 +60,8 @@ public class LoanService
                 "You already have an open loan. Complete or cancel it before applying again.");
 
         var profile = await _db.CustomerProfiles.SingleAsync(p => p.UserId == userId);
-        var (score, cibScore, source) = CreditScoring.Score(profile, req.Principal, req.CibScore);
+        var usdRate = await _gl.UsdRateForAsync(DateTime.UtcNow, account.Currency);
+        var (score, cibScore, source) = CreditScoring.Score(profile, req.Principal, req.CibScore, usdRate);
         var approved = score >= product.MinCreditScore;
         var reason = approved
             ? $"Score {score} ≥ {product.MinCreditScore} ({product.Code} minimum, {source})"
@@ -324,7 +325,7 @@ public class LoanService
                         (GlCodes.CustomerDeposits, installment.Total * usd),
                         (GlCodes.LoansReceivable, -installment.Principal * usd),
                         (GlCodes.LoanInterestIncome, -installment.Interest * usd),
-                    }, date);
+                    }, date, usd);
 
                 customer.Balance -= installment.Total; customer.Version += 1;
                 sweep.Balance += installment.Total; sweep.Version += 1;

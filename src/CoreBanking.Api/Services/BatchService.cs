@@ -140,7 +140,8 @@ public class BatchService
                 continue;
             }
 
-            var interest = Math.Round(account.Balance * account.Product!.AnnualInterestRate / 100 / 365,
+            // Savings interest: stored rate is a FRACTION (0.025 = 2.5% p.a.) — do NOT /100.
+            var interest = Math.Round(account.Balance * account.Product!.AnnualInterestRate / 365,
                 4, MidpointRounding.AwayFromZero);
             if (interest <= 0m)
             {
@@ -150,11 +151,12 @@ public class BatchService
 
             var ok = await RunItemAsync(counters, $"accrue:{account.AccountNumber}", async () =>
             {
-                var usd = interest * await _gl.UsdRateForAsync(date, account.Currency);
+                var fxRate = await _gl.UsdRateForAsync(date, account.Currency);
+                var usd = interest * fxRate;
                 await _gl.AttachRawAsync(null, date,
                     $"Interest accrual {account.AccountNumber} {date:yyyy-MM-dd}",
                     new[] { (GlCodes.InterestExpense, usd), (GlCodes.InterestPayable, -usd) },
-                    date);
+                    date, fxRate);
 
                 _db.InterestAccruals.Add(new InterestAccrual
                 {
@@ -202,11 +204,12 @@ public class BatchService
 
             var ok = await RunItemAsync(counters, $"odaccrue:{facility.Reference}", async () =>
             {
-                var usd = owed * await _gl.UsdRateForAsync(date, facility.Account.Currency);
+                var fxRate = await _gl.UsdRateForAsync(date, facility.Account.Currency);
+                var usd = owed * fxRate;
                 await _gl.AttachRawAsync(null, date,
                     $"Overdraft interest accrual {facility.Account.AccountNumber} {date:yyyy-MM-dd}",
                     new[] { (GlCodes.InterestReceivable, usd), (GlCodes.LoanInterestIncome, -usd) },
-                    date);
+                    date, fxRate);
 
                 _db.OverdraftAccruals.Add(new OverdraftAccrual
                 {
@@ -293,7 +296,7 @@ public class BatchService
                     {
                         (GlCodes.CustomerDeposits, total * usd),
                         (GlCodes.InterestReceivable, -total * usd),
-                    }, monthEnd);
+                    }, monthEnd, usd);
 
                 customer.Balance -= total; customer.Version += 1;
                 sweep.Balance += total; sweep.Version += 1;

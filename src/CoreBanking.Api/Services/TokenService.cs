@@ -114,9 +114,23 @@ public class TokenService
             UserAgent = Truncate(userAgent, 300)
         };
 
+        // Persist the replacement token in the SAME unit of work as the claim.
         _db.RefreshTokens.Add(next);
-        stored.RevokedAt = DateTime.UtcNow;
-        stored.ReplacedById = next.Id;
+
+        // Atomically claim the rotation: only one concurrent request may flip
+        // RevokedAt from NULL. The loser is treated as token theft and revokes
+        // the whole family. This prevents double-issuing valid refresh tokens.
+        var claimed = await _db.RefreshTokens
+            .Where(r => r.Id == stored.Id && r.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.RevokedAt, DateTime.UtcNow)
+                .SetProperty(r => r.ReplacedById, next.Id));
+        if (claimed != 1)
+        {
+            await RevokeAllForUserAsync(stored.UserId);
+            throw BankException.Conflict("refresh_token_reuse",
+                "Refresh token was already used. All sessions have been revoked.");
+        }
         await _db.SaveChangesAsync();
 
         return new RotateResult(new TokenPair(accessToken, accessExpires, rawNew, next.ExpiresAt), stored.User);
