@@ -341,11 +341,16 @@ public class AdminController : ControllerBase
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var toExclusive = toDate?.Date.AddDays(1);
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+            throw BankException.BadRequest("invalid_date_range", "fromDate must be on or before toDate.");
+        var fromUtc = fromDate.HasValue
+            ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc) : (DateTime?)null;
+        var toExclusive = toDate.HasValue
+            ? DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc) : (DateTime?)null;
 
         var query = _db.GlJournals.AsNoTracking()
-            .Where(j => (fromDate == null || j.BusinessDate >= fromDate.Value.Date)
-                     && (toExclusive == null || j.BusinessDate < toExclusive))
+            .Where(j => (fromUtc == null || j.BusinessDate >= fromUtc.Value)
+                     && (toExclusive == null || j.BusinessDate < toExclusive.Value))
             .OrderByDescending(j => j.CreatedAt)
             .ThenByDescending(j => j.Id);
 

@@ -118,14 +118,24 @@ public class AccountsController : ControllerBase
 
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var toExclusive = toDate?.Date.AddDays(1);
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+            throw BankException.BadRequest("invalid_date_range", "fromDate must be on or before toDate.");
+
+        // Npgsql requires DateTimeKind.Utc for timestamptz columns — .Date alone
+        // yields Unspecified and throws a 500 at query time.
+        var fromUtc = fromDate.HasValue
+            ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc)
+            : (DateTime?)null;
+        var toExclusive = toDate.HasValue
+            ? DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc)
+            : (DateTime?)null;
 
         var baseQuery =
             from e in _db.LedgerEntries
             join t in _db.Transactions on e.TransactionId equals t.Id
             where e.AccountId == id
-               && (fromDate == null || e.PostedAt >= fromDate.Value.Date)
-               && (toExclusive == null || e.PostedAt < toExclusive)
+               && (fromUtc == null || e.PostedAt >= fromUtc.Value)
+               && (toExclusive == null || e.PostedAt < toExclusive.Value)
             orderby e.PostedAt descending, e.Id descending
             select new StatementLine(e.Id, t.Id, t.Reference, t.Type.ToString(),
                 e.Amount, e.BalanceAfter, t.Description, e.PostedAt, account.Currency);
