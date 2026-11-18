@@ -67,6 +67,7 @@ public class AppDbContext : DbContext
             e.Property(p => p.Code).HasMaxLength(20).IsRequired();
             e.Property(p => p.Name).HasMaxLength(100).IsRequired();
             e.Property(p => p.Type).HasConversion<string>().HasMaxLength(20);
+            e.Property(p => p.Currency).HasMaxLength(3).IsFixedLength();
             e.Property(p => p.AnnualInterestRate).HasColumnType("numeric(9,6)");
             e.Property(p => p.MonthlyFee).HasColumnType("numeric(19,4)");
             e.Property(p => p.FeeWaiverMinBalance).HasColumnType("numeric(19,4)");
@@ -203,6 +204,8 @@ public class AppDbContext : DbContext
             e.Property(l => l.Principal).HasColumnType("numeric(19,4)");
             e.Property(l => l.AnnualInterestRate).HasColumnType("numeric(9,6)");
             e.Property(l => l.OriginationFee).HasColumnType("numeric(19,4)");
+            e.Property(l => l.CibScore);
+            e.Property(l => l.ScoreSource).HasMaxLength(20);
             e.HasOne(l => l.LoanProduct).WithMany()
                 .HasForeignKey(l => l.LoanProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<User>().WithMany()
@@ -238,8 +241,10 @@ public class AppDbContext : DbContext
             e.Property(f => f.AnnualInterestRate).HasColumnType("numeric(9,6)").IsRequired();
             e.Property(f => f.DecisionReason).HasMaxLength(500);
             e.Property(f => f.CloseReason).HasMaxLength(500);
-            e.Property(f => f.ProductCode).HasMaxLength(10).IsRequired();
+            e.Property(f => f.ProductCode).HasMaxLength(20).IsRequired();
             e.Property(f => f.CollateralAmount).HasColumnType("numeric(19,4)");
+            e.Property(f => f.CibScore);
+            e.Property(f => f.ScoreSource).HasMaxLength(20);
             e.HasOne(f => f.Account).WithMany()
                 .HasForeignKey(f => f.AccountId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(f => f.CollateralAccount).WithMany()

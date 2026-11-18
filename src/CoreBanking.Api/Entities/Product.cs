@@ -20,6 +20,9 @@ public class Product
     public string Name { get; set; } = string.Empty;
     public ProductType Type { get; set; }
 
+    /// <summary>Currency the pricing is denominated in (default USD; BDT products are denominated in BDT).</summary>
+    public string Currency { get; set; } = "USD";
+
     /// <summary>Annual interest rate, e.g. 2.5 means 2.5% p.a. 0 = non-interest-bearing.</summary>
     public decimal AnnualInterestRate { get; set; }
 

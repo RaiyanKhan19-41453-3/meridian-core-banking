@@ -7,7 +7,7 @@ public enum LoanProductStatus
 }
 
 /// <summary>
-/// Loan product terms. Currency is USD in v1. MinCreditScore is the instant
+/// Loan product terms. Currency is USD or BDT (Bangladesh). MinCreditScore is the instant
 /// decision threshold for applications.
 /// </summary>
 public class LoanProduct

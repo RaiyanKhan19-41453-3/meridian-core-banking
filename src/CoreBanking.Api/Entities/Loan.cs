@@ -30,10 +30,13 @@ public class Loan
     public decimal OriginationFee { get; set; }
 
     public int CreditScore { get; set; }
+    /// <summary>Bureau score supplied at application time (e.g. CIB extract), if any.</summary>
+    public int? CibScore { get; set; }
+    public string ScoreSource { get; set; } = "Internal";
     public string DecisionReason { get; set; } = string.Empty;
     public LoanStatus Status { get; set; }
 
-    /// <summary>Account the loan was (or will be) disbursed into and repaid from. Must be Active, owned by the customer, USD.</summary>
+    /// <summary>Account the loan was (or will be) disbursed into and repaid from. Must be Active, owned by the customer, product currency.</summary>
     public Guid DisbursementAccountId { get; set; }
 
     public string Purpose { get; set; } = string.Empty;

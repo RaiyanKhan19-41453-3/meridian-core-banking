@@ -7,7 +7,7 @@ public enum LoanInstallmentStatus
     Overdue // auto-debit attempted but insufficient funds — retried at next day-end
 }
 
-/// <summary>One scheduled EMI payment. Amounts in product currency (USD v1).</summary>
+/// <summary>One scheduled EMI payment. Amounts in product currency.</summary>
 public class LoanInstallment
 {
     public long Id { get; set; }

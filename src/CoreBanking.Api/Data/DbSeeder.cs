@@ -15,7 +15,7 @@ public static class DbSeeder
     public const string AdminPassword = "Admin123!";
     public const string SystemUserEmail = "system@meridian.internal";
 
-    private static readonly string[] Currencies = { "USD", "EUR", "GBP", "KES", "NGN" };
+    private static readonly string[] Currencies = { "USD", "EUR", "GBP", "KES", "NGN", "BDT" };
 
     public static async Task SeedAsync(AppDbContext db)
     {
@@ -54,6 +54,9 @@ public static class DbSeeder
         // Demo customer: one interest-bearing savings + one fee-bearing current account
         await EnsureAccountAsync(db, demo.Id, "AC100000000001", AccountType.Savings, "USD", "SAV-STD");
         await EnsureAccountAsync(db, demo.Id, "AC100000000002", AccountType.Current, "USD", "CUR-PER");
+        // Bangladesh pilot demo accounts — same catalogue, BDT products
+        await EnsureAccountAsync(db, demo.Id, "AC100000000003", AccountType.Savings, "BDT", "SAV-BDT");
+        await EnsureAccountAsync(db, demo.Id, "AC100000000004", AccountType.Current, "BDT", "CUR-BDT");
     }
 
     private static async Task<User> UpsertUserAsync(AppDbContext db, string email, string fullName,

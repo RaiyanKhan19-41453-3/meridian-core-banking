@@ -31,6 +31,9 @@ public class OverdraftFacility
     public decimal AnnualInterestRate { get; set; }
 
     public int CreditScore { get; set; }
+    /// <summary>Bureau score supplied at application time (e.g. CIB extract), if any.</summary>
+    public int? CibScore { get; set; }
+    public string ScoreSource { get; set; } = "Internal";
     public string DecisionReason { get; set; } = string.Empty;
     public OverdraftStatus Status { get; set; } = OverdraftStatus.Active;
 

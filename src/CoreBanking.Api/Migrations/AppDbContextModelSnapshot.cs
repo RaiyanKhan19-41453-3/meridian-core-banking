@@ -715,6 +715,10 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("applied_at");
 
+                    b.Property<int?>("CibScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("cib_score");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");
@@ -768,6 +772,12 @@ namespace CoreBanking.Api.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasColumnName("reference");
+
+                    b.Property<string>("ScoreSource")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("score_source");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1012,6 +1022,10 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("approved_at");
 
+                    b.Property<int?>("CibScore")
+                        .HasColumnType("integer")
+                        .HasColumnName("cib_score");
+
                     b.Property<string>("CloseReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -1049,8 +1063,8 @@ namespace CoreBanking.Api.Migrations
 
                     b.Property<string>("ProductCode")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("product_code");
 
                     b.Property<string>("Reference")
@@ -1058,6 +1072,12 @@ namespace CoreBanking.Api.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasColumnName("reference");
+
+                    b.Property<string>("ScoreSource")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("score_source");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1110,6 +1130,13 @@ namespace CoreBanking.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
 
                     b.Property<decimal>("FeeWaiverMinBalance")
                         .HasColumnType("numeric(19,4)")
