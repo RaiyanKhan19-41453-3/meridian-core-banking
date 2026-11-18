@@ -128,7 +128,7 @@ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 let bits='';for(const c of b32){bits+=alphabet.indexOf(c).toString(2).padStart(5,'0')}
 const bytes=[];for(let i=0;i+8<=bits.length;i+=8)bytes.push(parseInt(bits.slice(i,i+8),2));
 const key=Buffer.from(bytes);
-const counter=Math.floor(Date.now()/1000/30);
+const counter=Math.floor(Date.now()/1000/30)+1; // fresh step (no replay)
 const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(counter));
 const hmac=crypto.createHmac('sha1',key).update(buf).digest();
 const off=hmac[hmac.length-1]&0xf;
@@ -136,7 +136,11 @@ const code=((hmac.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,'
 console.log(code);")
 L2=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d "{\"email\":\"demo@bank.com\",\"password\":\"Demo123!\",\"totpCode\":\"$TOTP2\"}")
 check 'login with code works' true "$(echo "$L2" | j "['accessToken']" | grep -q . && echo true)"
+# Replaying the same code must be rejected (TOTP replay guard)
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/auth/login -H "$CT" -d "{\"email\":\"demo@bank.com\",\"password\":\"Demo123!\",\"totpCode\":\"$TOTP2\"}")
+check 'TOTP code replay rejected' 422 "$code"
 AT4=$(echo "$L2" | j "['accessToken']")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/auth/2fa/disable -H "Authorization: Bearer $AT4" -H "$CT" -d "{\"code\":\"$TOTP2\"}"); check 'TOTP replay on disable rejected' 422 "$code"
 TOTP3=$(node -e "
 const crypto=require('crypto');
 const b32='$SECRET'.replace(/=+$/,'');
@@ -144,7 +148,7 @@ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 let bits='';for(const c of b32){bits+=alphabet.indexOf(c).toString(2).padStart(5,'0')}
 const bytes=[];for(let i=0;i+8<=bits.length;i+=8)bytes.push(parseInt(bits.slice(i,i+8),2));
 const key=Buffer.from(bytes);
-const counter=Math.floor(Date.now()/1000/30);
+const counter=Math.floor(Date.now()/1000/30)-1; // fresh step within ±1 window
 const buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(counter));
 const hmac=crypto.createHmac('sha1',key).update(buf).digest();
 const off=hmac[hmac.length-1]&0xf;

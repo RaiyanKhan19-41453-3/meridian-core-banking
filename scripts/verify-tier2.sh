@@ -27,6 +27,11 @@ UNBALANCED=$(docker exec corebanking-postgres psql -U corebanking -d corebanking
 check 'all journals balanced' 0 "$UNBALANCED"
 
 echo '=== run day-end for today ==='
+# Future-dated runs must be rejected — no fees/accruals posted ahead of time
+FUT=$(date -u -d '+30 days' +%F)
+code=$(curl -s -o /tmp/fut.json -w '%{http_code}' -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"date\":\"$FUT\"}")
+check 'future-dated day-end rejected' 400 "$code"
+check 'future-date error code' future_date "$(python3 -c "import json; print(json.load(open('/tmp/fut.json'))['code'])")"
 DE=$(curl -s -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{}')
 echo "$DE" | python3 -m json.tool | head -30
 check 'day-end succeeded' Succeeded "$(echo "$DE" | j "['status']")"
