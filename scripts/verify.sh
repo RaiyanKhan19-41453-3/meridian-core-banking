@@ -77,6 +77,12 @@ check 'same account rejected' 400 "$code"
 echo '=== 11. statement JSON + CSV ==='
 curl -s "$BASE/api/accounts/$ACC_ID/statement?page=1&pageSize=5" -H "Authorization: Bearer $AT" | j "['total']"
 curl -s "$BASE/api/accounts/$ACC_ID/statement?format=csv" -H "Authorization: Bearer $AT"
+# Date-filtered statements must not 500 (Npgsql Kind=Unspecified bug)
+TODAY=$(date -u +%F)
+code=$(curl -s -o /tmp/stmt-date.out -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?fromDate=$TODAY&toDate=$TODAY" -H "Authorization: Bearer $AT")
+check 'date-filtered statement succeeds' 200 "$code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?fromDate=2026-12-31&toDate=2026-01-01" -H "Authorization: Bearer $AT")
+check 'inverted date range rejected' 400 "$code"
 
 echo '=== 12. admin login + freeze account → ops blocked → unfreeze ==='
 ALOG=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"admin@bank.com","password":"Admin123!"}')
