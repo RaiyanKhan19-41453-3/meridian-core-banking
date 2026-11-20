@@ -25,6 +25,8 @@ U1_TOKEN=$(echo "$R" | j "['accessToken']")
 check 'registration accepted' true "$([ -n "$U1_TOKEN" ] && echo true)"
 
 echo '=== 2. watchlist match flagged at registration ==='
+# capture user 1's id for later compliance actions
+U1_UID=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select id from users where email='$U1'")
 ALERTS=$(curl -s "$BASE/api/admin/aml/alerts?status=Open&pageSize=50" -H "Authorization: Bearer $TOK_A")
 echo "$ALERTS" | python3 -c "import sys,json; d=json.load(sys.stdin); us=[i['userEmail'] for i in d['items'] if i['alertType']=='WatchlistMatch']; print('watchlist alerts for user:', us)"
 check 'watchlist alert raised' ok "$(echo "$ALERTS" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if any(i['userEmail']=='$U1' and i['alertType']=='WatchlistMatch' for i in d['items']) else 'missing')")"
@@ -35,6 +37,16 @@ check 'me shows kycStatus Pending' Pending "$(echo "$ME1" | j "['kycStatus']")"
 S1=$(curl -s $BASE/api/kyc/status -H "Authorization: Bearer $U1_TOKEN")
 echo "$S1"
 check 'risk rating High (watchlist)' High "$(echo "$S1" | j "['riskRating']")"
+
+echo '=== 3b. flagged user cannot self-clear by renaming ==='
+curl -s -X PUT $BASE/api/kyc/profile -H "Authorization: Bearer $U1_TOKEN" -H "$CT" -d '{"fullLegalName":"Completely Different Name","dateOfBirth":"1989-07-07","nationality":"Kenya","phone":"+254744555666","addressLine":"21 Koinange Street","city":"Nairobi","country":"Kenya","idType":"NationalId","idNumber":"KE11122233","employmentStatus":"Employed","annualIncomeBand":"50k-100k"}' > /dev/null
+S1B=$(curl -s $BASE/api/kyc/status -H "Authorization: Bearer $U1_TOKEN")
+check 'risk remains High after self-rename' High "$(echo "$S1B" | j "['riskRating']")"
+# Compliance officer clears it with a reason
+code=$(code_of -X POST $BASE/api/admin/kyc/$U1_UID/clear-risk -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"reason":"Manual EDD review passed"}')
+check 'admin clear-risk accepted' 204 "$code"
+S1C=$(curl -s $BASE/api/kyc/status -H "Authorization: Bearer $U1_TOKEN")
+check 'risk becomes Medium after admin clearance' Medium "$(echo "$S1C" | j "['riskRating']")"
 
 echo '=== 4. pending user is blocked from banking (deposit/withdraw/transfer/open) ==='
 SAV_ID=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3 -c "import sys,json; print([a['id'] for a in json.load(sys.stdin) if a['accountNumber']=='AC100000000001'][0])")
