@@ -77,6 +77,29 @@ public class AdminReviewController : ControllerBase
         return Ok(docs);
     }
 
+    /// <summary>
+    /// Compliance-only: clear an enhanced-due-diligence flag after manual review.
+    /// Customers can never self-clear a watchlist hit by editing their name.
+    /// </summary>
+    [HttpPost("kyc/{userId:guid}/clear-risk")]
+    public async Task<IActionResult> ClearRisk(Guid userId, [FromBody] RejectKycRequest req)
+    {
+        var adminId = AdminId();
+        if (adminId is null) return Unauthorized();
+
+        var profile = await _db.CustomerProfiles.SingleOrDefaultAsync(p => p.UserId == userId);
+        if (profile is null) throw BankException.NotFound("profile_not_found", "Customer has no profile.");
+        if (profile.RiskRating == RiskRating.Low) return NoContent();
+
+        var previous = profile.RiskRating;
+        profile.RiskRating = RiskRating.Medium; // cleared hit still warrants periodic review
+        profile.UpdatedAt = DateTime.UtcNow;
+        _audit.Write(adminId, "kyc.risk_cleared", nameof(CustomerProfile), profile.Id.ToString(),
+            new { profile.UserId, previousRisk = previous.ToString(), reason = req.Reason.Trim() }, ClientIp);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpPost("kyc/{userId:guid}/approve")]
     public async Task<IActionResult> ApproveKyc(Guid userId)
     {

@@ -104,6 +104,9 @@ public class KycController : ControllerBase
         profile.RejectionReason = null;
         profile.UpdatedAt = DateTime.UtcNow;
 
+        // A watchlist hit is sticky: only a compliance officer may clear it.
+        // NEVER auto-downgrade on a customer-submitted profile edit — that would
+        // let a flagged person rename themselves to escape enhanced due diligence.
         // Watchlist screening on every submission
         var match = await _aml.ScreenWatchlistAsync(profile.FullLegalName);
         if (match is not null)
@@ -113,11 +116,6 @@ public class KycController : ControllerBase
             _audit.Write(userId, "kyc.watchlist_match", nameof(CustomerProfile), profile.Id.ToString(),
                 new { match.FullName, match.Source }, ClientIp);
         }
-        else if (profile.RiskRating == RiskRating.High)
-        {
-            profile.RiskRating = RiskRating.Medium; // previously flagged; needs admin review anyway
-        }
-
         _audit.Write(userId, wasRejected ? "kyc.resubmitted" : "kyc.profile_updated",
             nameof(CustomerProfile), profile.Id.ToString(),
             new { profile.FullLegalName, profile.KycStatus, profile.RiskRating }, ClientIp);
