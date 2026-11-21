@@ -92,6 +92,9 @@ code=$(curl -s -o /tmp/stmt-date.out -w '%{http_code}' "$BASE/api/accounts/$ACC_
 check 'date-filtered statement succeeds' 200 "$code"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?fromDate=2026-12-31&toDate=2026-01-01" -H "Authorization: Bearer $AT")
 check 'inverted date range rejected' 400 "$code"
+# Overflowing (page-1)*pageSize used to emit a negative OFFSET → 500
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?page=2147483647&pageSize=100" -H "Authorization: Bearer $AT")
+check 'extreme page number does not 500' 200 "$code"
 
 echo '=== 12. admin login + freeze account → ops blocked → unfreeze ==='
 ALOG=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"admin@bank.com","password":"Admin123!"}')
