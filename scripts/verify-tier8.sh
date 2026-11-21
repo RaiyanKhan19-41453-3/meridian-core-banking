@@ -91,5 +91,17 @@ wait
 OPEN=$(DB "select count(*) from loans l join users u on u.id=l.user_id where u.email='demo@bank.com' and l.status in ('Approved','Active')")
 check 'only one open loan after concurrent applies' 1 "$OPEN"
 
+echo '=== 8. concurrent disbursement is idempotent ==='
+LOAN_ID=$(DB "select l.id from loans l join users u on u.id=l.user_id where u.email='demo@bank.com' and l.status='Approved' limit 1")
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/c8-d-$i.json -w '%{http_code}' -X POST $BASE/api/loans/$LOAN_ID/accept-and-disburse \
+    -H "Authorization: Bearer $TOK" -H "$CT" -d '{}' > /tmp/c8-d-$i.code &
+done
+wait
+OK=$(grep -l '^200$' /tmp/c8-d-*.code | wc -l)
+check 'all concurrent disburses return 200' 5 "$OK"
+DISB=$(DB "select count(*) from transactions where type='LoanDisbursement'")
+check 'exactly one disbursement posted' 1 "$DISB"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
