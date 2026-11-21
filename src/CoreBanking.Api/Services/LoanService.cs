@@ -152,21 +152,48 @@ public class LoanService
                     .SingleOrDefaultAsync(i => i.LoanId == loanId && i.InstallmentNo == installmentNo);
                 if (installment is not null && installment.Status == LoanInstallmentStatus.Paid)
                 {
-                    installment.Status = LoanInstallmentStatus.Overdue;
-                    installment.PaidAt = null;
-                    installment.PaymentTransactionId = null;
-                    if (installment.Loan.Status == LoanStatus.Completed)
-                    {
-                        installment.Loan.Status = LoanStatus.Active;
-                        installment.Loan.CompletedAt = null;
-                    }
-                    _audit.Write(adminId, "loan.repayment_reversed", nameof(Loan),
-                        installment.LoanId.ToString(),
-                        new { reference = reversed, installmentNo }, ip);
+                    RestoreAfterReversal(installment, reversalReference: reversed,
+                        installmentNo, adminId, ip);
                     await _db.SaveChangesAsync();
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Startup reconciliation: the admin reversal and the loan-state restoration
+    /// are separate writes, so a crash in between would leave a Paid installment
+    /// whose payment transaction is already Reversed. Repair those rows on boot.
+    /// </summary>
+    public async Task<int> ReconcileReversedRepaymentsAsync()
+    {
+        var stale = await _db.LoanInstallments
+            .Include(i => i.Loan)
+            .Where(i => i.Status == LoanInstallmentStatus.Paid
+                        && i.PaymentTransactionId != null
+                        && _db.Transactions.Any(t => t.Id == i.PaymentTransactionId
+                            && t.Status == TransactionStatus.Reversed))
+            .ToListAsync();
+        foreach (var installment in stale)
+            RestoreAfterReversal(installment, "boot.reconcile", installment.InstallmentNo, null, null);
+        if (stale.Count > 0) await _db.SaveChangesAsync();
+        return stale.Count;
+    }
+
+    private void RestoreAfterReversal(LoanInstallment installment, string reversalReference,
+        int installmentNo, Guid? adminId, string? ip)
+    {
+        installment.Status = LoanInstallmentStatus.Overdue;
+        installment.PaidAt = null;
+        installment.PaymentTransactionId = null;
+        if (installment.Loan.Status == LoanStatus.Completed)
+        {
+            installment.Loan.Status = LoanStatus.Active;
+            installment.Loan.CompletedAt = null;
+        }
+        _audit.Write(adminId, "loan.repayment_reversed", nameof(Loan),
+            installment.LoanId.ToString(),
+            new { reference = reversalReference, installmentNo }, ip);
     }
 
     // ---------- acceptance & disbursement ----------

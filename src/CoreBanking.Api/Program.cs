@@ -175,6 +175,13 @@ using (var scope = app.Services.CreateScope())
         await db.SaveChangesAsync();
         app.Logger.LogWarning("Reconciled {Count} interrupted batch run(s) to Failed", stale.Count);
     }
+
+    // Repair any installment left Paid by a crash between reversing its payment
+    // and restoring the loan state (those are two separate commits).
+    var loans = scope.ServiceProvider.GetRequiredService<LoanService>();
+    var restored = await loans.ReconcileReversedRepaymentsAsync();
+    if (restored > 0)
+        app.Logger.LogWarning("Restored {Count} installment(s) after reversed repayments", restored);
 }
 
 app.UseExceptionHandler();
