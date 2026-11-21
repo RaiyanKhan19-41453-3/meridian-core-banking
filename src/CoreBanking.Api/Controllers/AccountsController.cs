@@ -170,7 +170,7 @@ public class AccountsController : ControllerBase
 
     private static string CsvCell(string value)
     {
-        if (value.Length > 0 && "=+-@".Contains(value[0]))
+        if (value.Length > 0 && "=+-@\t\r".Contains(value[0]))
             value = "'" + value; // neutralize spreadsheet formula injection
         return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
