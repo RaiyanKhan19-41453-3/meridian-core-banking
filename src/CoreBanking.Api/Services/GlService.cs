@@ -53,6 +53,35 @@ public class GlService
             glLegs, businessDate, rate);
     }
 
+    /// <summary>
+    /// Mirror the ORIGINAL journal with inverted legs for a reversal. Deriving
+    /// GL from the reversal's 2 subledger legs loses the original's account split
+    /// — e.g. a 3-leg loan repayment (deposits / principal / interest income)
+    /// would reverse as just deposits / principal, leaving interest income
+    /// recognised and Loans Receivable overstated by the interest portion.
+    /// </summary>
+    public async Task<GlJournal?> AttachReversalAsync(Guid reversalTransactionId,
+        Guid originalTransactionId, string description)
+    {
+        var original = await _db.GlJournals
+            .Include(j => j.Entries)
+            .AsNoTracking()
+            .SingleOrDefaultAsync(j => j.TransactionId == originalTransactionId);
+        if (original is null) return null; // e.g. internal transfer posts no GL journal
+
+        var accountIds = original.Entries.Select(e => e.GlAccountId).Distinct().ToList();
+        var codes = await _db.GlAccounts
+            .Where(g => accountIds.Contains(g.Id))
+            .ToDictionaryAsync(g => g.Id, g => g.Code);
+
+        var legs = original.Entries
+            .Select(e => (codes[e.GlAccountId], Usd: -e.Amount))
+            .ToList();
+
+        return await AttachRawAsync(reversalTransactionId, DateTime.UtcNow,
+            description, legs, original.BusinessDate, original.UsdRate);
+    }
+
     /// <summary>Post a balanced journal from raw GL legs (already in USD). Used by accruals and other non-subledger events.</summary>
     public async Task<GlJournal> AttachRawAsync(Guid? transactionId, DateTime createdAt, string description,
         IReadOnlyList<(string Code, decimal Usd)> legs, DateTime? businessDate = null, decimal usdRate = 1.00000000m)

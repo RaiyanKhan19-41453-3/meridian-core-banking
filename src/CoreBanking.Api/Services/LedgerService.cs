@@ -221,7 +221,9 @@ public class LedgerService
 
         _db.Transactions.Add(reversal);
         _db.LedgerEntries.AddRange(entries);
-        await _gl.AttachAsync(reversal, entries, byId, byId.Values.First().Currency);
+        // Mirror the original GL journal so multi-leg postings (e.g. loan
+        // repayments with a separate interest-income leg) are fully reversed.
+        await _gl.AttachReversalAsync(reversal.Id, original.Id, reversal.Description);
 
         _audit.Write(adminId, "transaction.reverse", nameof(Transaction), original.Id.ToString(),
             new { originalReference = original.Reference, reversalReference = reversal.Reference, overdraft }, ip);
