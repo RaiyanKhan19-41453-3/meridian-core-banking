@@ -21,13 +21,16 @@ public class AdminController : ControllerBase
     private readonly LedgerService _ledger;
     private readonly AuditService _audit;
     private readonly BatchService _batch;
+    private readonly LoanService _loans;
 
-    public AdminController(AppDbContext db, LedgerService ledger, AuditService audit, BatchService batch)
+    public AdminController(AppDbContext db, LedgerService ledger, AuditService audit,
+        BatchService batch, LoanService loans)
     {
         _db = db;
         _ledger = ledger;
         _audit = audit;
         _batch = batch;
+        _loans = loans;
     }
 
     private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -99,6 +102,8 @@ public class AdminController : ControllerBase
 
         var hash = RequestFingerprint.Compute(new { id, req.Description });
         var result = await _ledger.ReverseAsync(adminId.Value, id, req.Description, IdempotencyKey, hash, ClientIp);
+        if (!result.Replayed)
+            await _loans.OnTransactionReversedAsync(id, adminId.Value, ClientIp);
 
         var firstEntry = result.Entries.First();
         var currency = await _db.Accounts.Where(a => a.Id == firstEntry.AccountId)
