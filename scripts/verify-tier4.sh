@@ -88,6 +88,17 @@ check 'repayment run 2 completes' Succeeded "$(echo "$RP2" | j "['status']")"
 INST1B=$(DB "select status from loan_installments where loan_id = '$LOAN_ID' and installment_no = 1")
 check 'installment 1 now Paid' Paid "$INST1B"
 
+echo '=== 7b. admin reverses the repayment → installment returns to Overdue ==='
+LOAN_REF=$(DB "select reference from loans where id = '$LOAN_ID'")
+LRP_REF=$(DB "select reference from transactions where reference like 'LRP-$LOAN_REF-%' order by created_at desc limit 1")
+LRP_ID=$(DB "select id from transactions where reference = '$LRP_REF'")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/admin/transactions/$LRP_ID/reverse -H "Authorization: Bearer $TOK_A" -H "Idempotency-Key: ${RUN_ID}t4-rev-repay" -H "$CT" -d '{"description":"restore installment"}')
+check 'repayment reversal posted' 201 "$code"
+INST1C=$(DB "select status from loan_installments where loan_id = '$LOAN_ID' and installment_no = 1")
+check 'installment un-paid after reversal' Overdue "$INST1C"
+LOAN_STATUS=$(DB "select status from loans where id = '$LOAN_ID'")
+check 'loan back to Active after reversal' Active "$LOAN_STATUS"
+
 echo '=== 8. loan repayment posts double-entry + GL journal balanced ==='
 UNBALANCED=$(DB "select count(*) from (select journal_id from gl_entries group by journal_id having sum(amount) <> 0) t")
 check 'all GL journals balanced' 0 "$UNBALANCED"
