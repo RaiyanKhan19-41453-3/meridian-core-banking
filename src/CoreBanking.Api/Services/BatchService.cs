@@ -349,6 +349,10 @@ public class BatchService
             if (total <= 0m) continue;
 
             var account = await _db.Accounts.AsNoTracking().SingleAsync(a => a.Id == group.Key);
+            // Closing an account requires a zero balance. Crediting capitalized
+            // interest afterwards would silently re-open a debt on a closed
+            // (or frozen) account, so skip anything not Active.
+            if (account.Status != AccountStatus.Active) continue;
             var reference = $"INT-{asOf:yyyyMMdd}-{account.AccountNumber}";
 
             // deterministic reference → reruns never double-pay
