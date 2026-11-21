@@ -17,6 +17,7 @@ if docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "sel
 fi
 
 TOK=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"demo@bank.com","password":"Demo123!"}' | j "['accessToken']")
+TOK_A=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"admin@bank.com","password":"Admin123!"}' | j "['accessToken']")
 ACCS=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK")
 SAV=$(echo "$ACCS" | j "[0]['id']")
 CUR=$(echo "$ACCS" | j "[1]['id']")
@@ -117,6 +118,15 @@ check 'one overdraft application succeeds' 1 "$OK"
 check 'four get clean facility_exists conflict' 4 "$CONF"
 FAC=$(DB "select count(*) from overdraft_facilities where account_id='$CURACC'")
 check 'exactly one facility created' 1 "$FAC"
+
+echo '=== 10. reversing a disbursement restores the loan to Approved ==='
+LND_ID=$(DB "select id from transactions where type='LoanDisbursement' order by created_at desc limit 1")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/admin/transactions/$LND_ID/reverse \
+  -H "Authorization: Bearer $TOK_A" -H "Idempotency-Key: ${RUN_ID}c8-rev-disb" -H "$CT" \
+  -d '{"description":"restore pre-disbursement state"}')
+check 'disbursement reversal posted' 201 "$code"
+LOAN_ST=$(DB "select status from loans where id='$LOAN_ID'")
+check 'loan back to Approved after disbursement reversal' Approved "$LOAN_ST"
 
 echo
 echo "RESULT: $pass passed, $fail failed"
