@@ -181,6 +181,16 @@ public class LedgerService
         var locked = await LockAccountsAsync(accountIds);
         var byId = locked.ToDictionary(a => a.Id);
 
+        // The status check above happens BEFORE the row locks. Two concurrent
+        // reversals with different keys both see Posted, then both post a
+        // reversal — multiplying the refund. Claim the status atomically under
+        // the lock; only the winner may post.
+        var claimed = await _db.Transactions
+            .Where(t => t.Id == original.Id && t.Status == TransactionStatus.Posted)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TransactionStatus.Reversed));
+        if (claimed != 1)
+            throw BankException.Conflict("already_reversed", "Transaction has already been reversed.");
+
         var reversal = new Transaction
         {
             Reference = idempotencyKey,
@@ -217,7 +227,8 @@ public class LedgerService
         }
 
         EnsureEntriesSumToZero(entries);
-        original.Status = TransactionStatus.Reversed;
+        // Status was flipped by the atomic claim above — do not reassign the
+        // tracked entity or EF would write the stale value back on SaveChanges.
 
         _db.Transactions.Add(reversal);
         _db.LedgerEntries.AddRange(entries);
