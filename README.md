@@ -190,7 +190,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
   `toDate=9999-12-31` query no longer overflows `AddDays(1)` and returns 500.
 - Reversals mirror the ORIGINAL GL journal with inverted legs rather than re-deriving
   GL from the reversal's 2 subledger legs — multi-leg postings (loan repayments split
-  into deposits / principal / interest income) are now fully reversed.
+  into deposits / principal / interest income) are now fully reversed. Reversing a
+  loan disbursement also returns the loan to Approved and clears its disbursement link.
 
 ## Implementation roadmap
 
@@ -226,7 +227,7 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 219/219 green)**
+**Verification (all eight suites on isolated fresh volumes = 221/221 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -236,7 +237,7 @@ done
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
 | `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
-| `verify-tier8.sh` | 19 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
+| `verify-tier8.sh` | 21 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).
