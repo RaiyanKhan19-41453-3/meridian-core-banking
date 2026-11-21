@@ -68,16 +68,20 @@ BAL2=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3 -c
 python3 -c "import sys; sys.exit(0 if abs(float('$BAL2') - float('$AFTER')) < 0.001 else 1)" && check 'retry did not double-disburse' ok ok || check 'retry did not double-disburse' fail ok
 
 echo '=== 6. move first installment due date to yesterday, drain account, run repayments → Overdue ==='
-DB "update loan_installments set due_date = current_date - 1 where loan_id = '$LOAN_ID' and installment_no = 1" > /dev/null
+BACKDATE=$(date -u -d '-45 days' +%F)
+BACKMONTH=$(date -u -d '-45 days' +%Y%m)
+DB "update loan_installments set due_date = '$BACKDATE' where loan_id = '$LOAN_ID' and installment_no = 1" > /dev/null
 # drain NEW_ACC below EMI (withdraw everything above 100)
 CUR=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3 -c "import sys,json; print([a['balance'] for a in json.load(sys.stdin) if a['id']=='$NEW_ACC'][0])")
 DRAIN=$(python3 -c "print(round(float('$CUR') - 100, 4))")
 curl -s -X POST $BASE/api/transactions/withdraw -H "Authorization: Bearer $TOK_D" -H "Idempotency-Key: ${RUN_ID}t4-drain-1" -H "$CT" -d "{\"accountId\":\"$NEW_ACC\",\"amount\":$DRAIN,\"description\":\"drain for missed-payment test\"}" > /dev/null
-RP=$(curl -s -X POST $BASE/api/admin/batch/process-repayments -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"date":"'$(date -u +%F)'"}')
+RP=$(curl -s -X POST $BASE/api/admin/batch/process-repayments -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"date":"'$BACKDATE'"}')
 echo "$RP"
 check 'repayment run completes' Succeeded "$(echo "$RP" | j "['status']")"
 INST1=$(DB "select status from loan_installments where loan_id = '$LOAN_ID' and installment_no = 1")
 check 'installment 1 marked Overdue' Overdue "$INST1"
+LFEE=$(DB "select reference from transactions where type='Fee' and reference like 'LFEE-%' order by created_at desc limit 1")
+check 'late fee period follows batch business date' true "$([ "${LFEE: -6}" = "$BACKMONTH" ] && echo true)"
 
 echo '=== 7. fund the account, rerun repayments (next day) → Paid ==='
 curl -s -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK_D" -H "Idempotency-Key: ${RUN_ID}t4-refill-1" -H "$CT" -d "{\"accountId\":\"$NEW_ACC\",\"amount\":2000,\"description\":\"refill for repayment\"}" > /dev/null
