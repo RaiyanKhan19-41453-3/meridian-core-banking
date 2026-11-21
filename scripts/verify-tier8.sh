@@ -152,5 +152,20 @@ check 'closed facility not charged' 0 "$(echo "$CHG" | python3 -c "import sys,js
 BAL_AFTER=$(DB "select balance from accounts where id='$CURACC'")
 check 'balance unchanged after post-close charge run' "$BAL_BEFORE" "$BAL_AFTER"
 
+echo '=== 13. concurrent reversals with different keys reverse exactly once ==='
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-rev-dep" -H "$CT" -d "{\"accountId\":\"$SAV\",\"amount\":1000,\"description\":\"rev race\"}"
+RTX=$(DB "select id from transactions where reference='${RUN_ID}c8-rev-dep'")
+RBAL=$(DB "select balance from accounts where id='$SAV'")
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/c8-r-$i.json -w '%{http_code}' -X POST $BASE/api/admin/transactions/$RTX/reverse \
+    -H "Authorization: Bearer $TOK_A" -H "Idempotency-Key: ${RUN_ID}c8-rev-$i" -H "$CT" \
+    -d '{"description":"race"}' > /tmp/c8-r-$i.code &
+done
+wait
+REVCOUNT=$(DB "select count(*) from transactions where original_transaction_id='$RTX'")
+check 'exactly one reversal posted' 1 "$REVCOUNT"
+RBAL2=$(DB "select balance from accounts where id='$SAV'")
+python3 -c "import sys; sys.exit(0 if abs((float('$RBAL')-float('$RBAL2'))-1000)<0.001 else 1)" && check 'balance reversed exactly once' ok ok || check 'balance reversed exactly once' fail "$RBAL2 vs $RBAL"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
