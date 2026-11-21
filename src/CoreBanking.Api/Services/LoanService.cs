@@ -537,7 +537,7 @@ public class LoanService
     {
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            var candidate = $"LN-{DateTime.UtcNow:yyyy}-{RandomNumberGenerator.GetInt32(100000, 999999)}";
+            var candidate = $"LN-{DateTime.UtcNow:yyyy}-{RandomNumberGenerator.GetInt32(100000000, 999999999)}";
             if (!await _db.Loans.AnyAsync(l => l.Reference == candidate))
                 return candidate;
         }

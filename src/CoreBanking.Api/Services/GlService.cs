@@ -110,6 +110,9 @@ public class GlService
             $"No FX rate seeded for {ccy}/USD. GL cannot normalize.");
     }
 
+    // A 6-digit random suffix collides with ~42% probability after 1,000 journals
+    // and there is no retry on the unique index — a collision would 500 a posting.
+    // A 12-hex-char GUID suffix makes collisions effectively impossible.
     private static string GenerateNumber() =>
-        $"GLJ-{DateTime.UtcNow:yyyyMMdd}-{RandomNumberGenerator.GetInt32(100000, 999999)}";
+        $"GLJ-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}"[..25];
 }

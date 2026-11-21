@@ -276,7 +276,7 @@ public class OverdraftService
     {
         for (var attempt = 0; attempt < 5; attempt++)
         {
-            var candidate = $"OD-{DateTime.UtcNow:yyyy}-{RandomNumberGenerator.GetInt32(100000, 999999)}";
+            var candidate = $"OD-{DateTime.UtcNow:yyyy}-{RandomNumberGenerator.GetInt32(100000000, 999999999)}";
             if (!await _db.OverdraftFacilities.AnyAsync(f => f.Reference == candidate))
                 return candidate;
         }
