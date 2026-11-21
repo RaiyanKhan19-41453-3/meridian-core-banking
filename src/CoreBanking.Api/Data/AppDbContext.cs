@@ -30,6 +30,10 @@ public class AppDbContext : DbContext
     public DbSet<OverdraftFacility> OverdraftFacilities => Set<OverdraftFacility>();
     public DbSet<OverdraftAccrual> OverdraftAccruals => Set<OverdraftAccrual>();
 
+    public DbSet<Beneficiary> Beneficiaries => Set<Beneficiary>();
+
+    public DbSet<ScheduledPayment> ScheduledPayments => Set<ScheduledPayment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(e =>
@@ -284,6 +288,29 @@ public class AppDbContext : DbContext
             e.Property(r => r.TokenHash).HasMaxLength(64).IsRequired();
             e.HasOne(r => r.User).WithMany(u => u.RefreshTokens)
                 .HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Beneficiary>(e =>
+        {
+            e.HasKey(b => b.Id);
+            e.HasIndex(b => new { b.UserId, b.Nickname }).IsUnique();
+            e.Property(b => b.AccountNumber).HasMaxLength(32).IsRequired();
+            e.Property(b => b.Nickname).HasMaxLength(80).IsRequired();
+            e.Property(b => b.BankCode).HasMaxLength(20).IsRequired();
+            e.Property(b => b.Currency).HasMaxLength(3).IsFixedLength();
+        });
+
+        modelBuilder.Entity<ScheduledPayment>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasIndex(s => new { s.UserId, s.Status });
+            e.HasIndex(s => new { s.Status, s.ScheduledDate });
+            e.Property(s => s.ToAccountNumber).HasMaxLength(32).IsRequired();
+            e.Property(s => s.Currency).HasMaxLength(3).IsFixedLength();
+            e.Property(s => s.Rail).HasMaxLength(20).IsRequired();
+            e.Property(s => s.Description).HasMaxLength(500);
+            e.Property(s => s.Frequency).HasConversion<string>().HasMaxLength(20);
+            e.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
         });
 
         modelBuilder.Entity<Transaction>(e =>

@@ -22,15 +22,17 @@ public class AdminController : ControllerBase
     private readonly AuditService _audit;
     private readonly BatchService _batch;
     private readonly LoanService _loans;
+    private readonly PaymentService _payments;
 
     public AdminController(AppDbContext db, LedgerService ledger, AuditService audit,
-        BatchService batch, LoanService loans)
+        BatchService batch, LoanService loans, PaymentService payments)
     {
         _db = db;
         _ledger = ledger;
         _audit = audit;
         _batch = batch;
         _loans = loans;
+        _payments = payments;
     }
 
     private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -182,6 +184,16 @@ public class AdminController : ControllerBase
     {
         var result = await _batch.RunLimitReviewAsync(req.Year, req.Month, AdminId(), ClientIp);
         return Ok(ToDto(result.Run, result.Replayed));
+    }
+
+    [HttpPost("batch/execute-scheduled-payments")]
+    public async Task<IActionResult> ExecuteScheduledPayments([FromBody] DayEndRequest req)
+    {
+        // Not a guarded batch: a payment scheduled after today's run must still
+        // be executable. Each execution uses a deterministic idempotency key,
+        // so repeated calls never double-post.
+        var executed = await _payments.ExecuteDueAsync(req.Date ?? DateTime.UtcNow.Date, ClientIp);
+        return Ok(new { executed, date = (req.Date ?? DateTime.UtcNow.Date).Date });
     }
 
     [HttpPost("batch/accrue-overdraft-interest")]

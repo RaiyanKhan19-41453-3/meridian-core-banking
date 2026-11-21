@@ -53,6 +53,7 @@ builder.Services.AddScoped<OverdraftService>();
 builder.Services.AddScoped<BatchService>();
 builder.Services.AddScoped<AmlService>();
 builder.Services.AddScoped<ComplianceService>();
+builder.Services.AddScoped<PaymentService>();
 
 // --- ProblemDetails for every unhandled exception ---
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
