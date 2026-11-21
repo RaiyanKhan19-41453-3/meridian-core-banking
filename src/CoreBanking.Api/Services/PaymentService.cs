@@ -31,7 +31,14 @@ public class PaymentService
         var number = req.AccountNumber.Trim().ToUpperInvariant();
         var exists = await _db.Accounts.AnyAsync(a => a.AccountNumber == number);
         if (!exists) throw BankException.NotFound("account_not_found", "Beneficiary account does not exist.");
-        if (await _db.Beneficiaries.AnyAsync(b => b.UserId == userId && b.Nickname == req.Nickname.Trim()))
+        var nickname = req.Nickname.Trim();
+
+        // The (UserId, Nickname) unique index stops duplicates, but without a
+        // lock the losing callers hit an unhandled 23505 and return 500.
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        await _db.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(hashtext({0}), 4)", $"{userId}:{nickname}");
+        if (await _db.Beneficiaries.AnyAsync(b => b.UserId == userId && b.Nickname == nickname))
             throw BankException.Conflict("beneficiary_exists", "A beneficiary with this nickname already exists.");
 
         var account = await _db.Accounts.AsNoTracking()
@@ -39,7 +46,7 @@ public class PaymentService
         var beneficiary = new Beneficiary
         {
             UserId = userId,
-            Nickname = req.Nickname.Trim(),
+            Nickname = nickname,
             AccountNumber = number,
             BankCode = string.IsNullOrWhiteSpace(req.BankCode) ? "MERIDIAN" : req.BankCode.Trim().ToUpperInvariant(),
             Currency = account.Currency
@@ -48,6 +55,7 @@ public class PaymentService
         _audit.Write(userId, "payment.beneficiary_added", nameof(Beneficiary), beneficiary.Id.ToString(),
             new { beneficiary.Nickname, beneficiary.AccountNumber }, ip);
         await _db.SaveChangesAsync();
+        await tx.CommitAsync();
         return ToDto(beneficiary);
     }
 
@@ -147,6 +155,18 @@ public class PaymentService
         {
             try
             {
+                // Atomically claim this occurrence. Cancel can only touch Pending
+                // rows, so a claimed (Processing) payment cannot be cancelled
+                // out from under an execution in flight.
+                var claimed = await _db.ScheduledPayments
+                    .Where(s => s.Id == payment.Id && s.Status == ScheduledPaymentStatus.Pending)
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ScheduledPaymentStatus.Processing));
+                if (claimed != 1) continue;
+                // The claim ran outside the change tracker; align the tracked
+                // original value so the final status is actually written back.
+                _db.Entry(payment).Property(p => p.Status).OriginalValue =
+                    ScheduledPaymentStatus.Processing;
+
                 var key = $"PMT-{payment.Id}-{payment.ScheduledDate:yyyyMMdd}";
                 var hash = RequestFingerprint.Compute(new { key, payment.Amount, payment.ToAccountNumber });
                 var result = await _ledger.TransferAsync(payment.UserId, payment.FromAccountId,
@@ -158,9 +178,13 @@ public class PaymentService
                 if (payment.Frequency == PaymentFrequency.Once)
                     payment.Status = ScheduledPaymentStatus.Executed;
                 else
+                {
+                    // Release the claim for the next occurrence.
+                    payment.Status = ScheduledPaymentStatus.Pending;
                     payment.ScheduledDate = payment.Frequency == PaymentFrequency.Weekly
                         ? DateTime.SpecifyKind(payment.ScheduledDate.Date.AddDays(7), DateTimeKind.Utc)
                         : DateTime.SpecifyKind(payment.ScheduledDate.Date.AddMonths(1), DateTimeKind.Utc);
+                }
                 _audit.Write(payment.UserId, "payment.executed", nameof(ScheduledPayment), payment.Id.ToString(),
                     new { key, result.Transaction.Reference }, ip);
                 executed++;

@@ -37,6 +37,20 @@ check 're-filing is idempotent' false "$(echo "$R2" | python3 -c "import sys,jso
 FR=$(curl -s $BASE/api/compliance/ctr -H "Authorization: Bearer $ADM" | python3 -c "import sys,json; d=json.load(sys.stdin); print([a['filedReference'] for a in d if a['id']=='$AID'][0])")
 check 'filing reference retained' CTR-TEST-001 "$FR"
 
+# Concurrent filings must produce exactly one filing, not five audit rows.
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c10-big2" -H "$CT" -d "{\"accountId\":\"$SAV\",\"amount\":20000,\"description\":\"another large deposit\"}"
+AID2=$(DB "select id from aml_alerts where alert_type='HighValue' and filed_at is null order by created_at desc limit 1")
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/c10-f-$i.json -X POST $BASE/api/compliance/alerts/$AID2/file -H "Authorization: Bearer $ADM" -H "$CT" -d "{\"reference\":\"${RUN_ID}-F$i\"}" &
+done
+wait
+SUCCESS=$(python3 -c "
+import json
+print(sum(1 for i in range(1,6) if json.load(open(f'/tmp/c10-f-{i}.json')).get('filed')))")
+check 'concurrent filings: exactly one winner' 1 "$SUCCESS"
+AUD=$(DB "select count(*) from audit_logs where action='compliance.filed' and entity_id='$AID2'")
+check 'concurrent filings: one audit row' 1 "$AUD"
+
 echo '=== 4. customers cannot read CTR; admin only ==='
 code=$(curl -s -o /dev/null -w '%{http_code}' $BASE/api/compliance/ctr -H "Authorization: Bearer $TOK")
 check 'CTR forbidden for customer' 403 "$code"
@@ -74,6 +88,13 @@ WL=$(curl -s -X POST $BASE/api/compliance/watchlist/refresh -H "Authorization: B
 check 'watchlist entry added' 1 "$(echo "$WL" | python3 -c "import sys,json; print(json.load(sys.stdin)['added'])")"
 WL2=$(curl -s -X POST $BASE/api/compliance/watchlist/refresh -H "Authorization: Bearer $ADM" -H "$CT" -d "{\"entries\":[{\"fullName\":\"$NAME\",\"source\":\"OFAC (demo)\"}]}")
 check 'duplicate watchlist entry skipped' 1 "$(echo "$WL2" | python3 -c "import sys,json; print(json.load(sys.stdin)['skipped'])")"
+CNAME="Concurrent ${RUN_ID}"
+for i in 1 2 3 4 5; do
+  curl -s -o /dev/null -X POST $BASE/api/compliance/watchlist/refresh -H "Authorization: Bearer $ADM" -H "$CT" -d "{\"entries\":[{\"fullName\":\"$CNAME\",\"source\":\"OFAC (demo)\"}]}" &
+done
+wait
+CCOUNT=$(DB "select count(*) from watchlist_entries where full_name='$CNAME'")
+check 'concurrent refresh creates one entry' 1 "$CCOUNT"
 U="c10_${RUN_ID}@example.com"
 curl -s -o /dev/null -X POST $BASE/api/auth/register -H "$CT" -d "{\"email\":\"$U\",\"password\":\"Pass1234!\",\"fullName\":\"Sanction Target\"}"
 UTOK=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d "{\"email\":\"$U\",\"password\":\"Pass1234!\"}" | j "['accessToken']")

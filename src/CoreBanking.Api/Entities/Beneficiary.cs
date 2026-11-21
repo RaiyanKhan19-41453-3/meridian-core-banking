@@ -23,6 +23,7 @@ public enum PaymentFrequency
 public enum ScheduledPaymentStatus
 {
     Pending,
+    Processing,
     Executed,
     Failed,
     Cancelled

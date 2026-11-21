@@ -69,15 +69,26 @@ public class ComplianceService
     {
         var alert = await _db.AmlAlerts.SingleOrDefaultAsync(a => a.Id == alertId);
         if (alert is null) throw BankException.NotFound("alert_not_found", "Alert does not exist.");
-        if (alert.FiledAt is not null) return false; // idempotent
-        alert.FiledAt = DateTime.UtcNow;
-        alert.FiledBy = adminId;
-        alert.FiledReference = reference.Trim();
-        alert.Status = AmlAlertStatus.Reviewed;
-        alert.ReviewedAt = alert.FiledAt;
-        alert.ReviewedBy = adminId;
+        if (alert.FiledAt is not null) return false; // fast path
+
+        // Atomic claim: concurrent filings with different references would all
+        // pass the check above, overwriting each other and emitting duplicate
+        // audit rows. Only the caller that flips FiledAt from NULL may file.
+        var filedAt = DateTime.UtcNow;
+        var trimmed = reference.Trim();
+        var claimed = await _db.AmlAlerts
+            .Where(a => a.Id == alertId && a.FiledAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.FiledAt, filedAt)
+                .SetProperty(a => a.FiledBy, adminId)
+                .SetProperty(a => a.FiledReference, trimmed)
+                .SetProperty(a => a.Status, AmlAlertStatus.Reviewed)
+                .SetProperty(a => a.ReviewedAt, filedAt)
+                .SetProperty(a => a.ReviewedBy, adminId));
+        if (claimed != 1) return false;
+
         _audit.Write(adminId, "compliance.filed", nameof(AmlAlert), alert.Id.ToString(),
-            new { alert.AlertType, reference = alert.FiledReference }, ip);
+            new { alert.AlertType, reference = trimmed }, ip);
         await _db.SaveChangesAsync();
         return true;
     }
@@ -226,14 +237,21 @@ public class ComplianceService
             var name = entry.FullName.Trim();
             var source = entry.Source.Trim();
             if (name.Length == 0 || source.Length == 0) { skipped++; continue; }
+
+            // Serialize refreshes of the same name — concurrent callers would
+            // otherwise all pass the existence check and insert duplicates.
+            await using var tx = await _db.Database.BeginTransactionAsync();
+            await _db.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock(hashtext({0}), 3)", name);
             if (await _db.WatchlistEntries.AnyAsync(w => w.FullName == name && w.Source == source))
             { skipped++; continue; }
             _db.WatchlistEntries.Add(new WatchlistEntry { FullName = name, Source = source });
             _audit.Write(adminId, "compliance.watchlist_added", nameof(WatchlistEntry), name,
                 new { name, source }, ip);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
             added++;
         }
-        if (added > 0) await _db.SaveChangesAsync();
         return (added, skipped);
     }
 }

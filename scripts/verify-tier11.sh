@@ -27,6 +27,14 @@ DUP=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/benefici
 check 'duplicate nickname rejected' 409 "$DUP"
 BAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/beneficiaries -H "Authorization: Bearer $TOK" -H "$CT" -d '{"nickname":"Ghost","accountNumber":"AC999999999999"}')
 check 'unknown beneficiary account rejected' 404 "$BAD"
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/t11-bf-$i.json -w '%{http_code}' -X POST $BASE/api/payments/beneficiaries -H "Authorization: Bearer $TOK" -H "$CT" -d '{"nickname":"Race Payee","accountNumber":"AC100000000002"}' > /tmp/t11-bf-$i.code &
+done
+wait
+OK=$(grep -l '^201$' /tmp/t11-bf-*.code | wc -l)
+CONF=$(grep -l 'beneficiary_exists' /tmp/t11-bf-*.json | wc -l)
+check 'concurrent beneficiary: exactly one created' 1 "$OK"
+check 'concurrent beneficiary: losers get 409' 4 "$CONF"
 
 echo '=== 2. schedule and execute a one-off payment ==='
 PAY=$(curl -s -X POST $BASE/api/payments/scheduled -H "Authorization: Bearer $TOK" -H "$CT" -d "{\"fromAccountId\":\"$SAV\",\"beneficiaryId\":\"$BID\",\"amount\":100,\"frequency\":\"Once\",\"scheduledDate\":\"$TODAY\",\"description\":\"rent\"}")
