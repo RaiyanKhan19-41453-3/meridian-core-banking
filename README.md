@@ -184,6 +184,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - The loan origination fee transaction now gets its own audit entry.
 - System (SYS-*) accounts cannot be frozen or closed by an admin, preventing an
   accidental freeze of the omnibus account from halting all money movement.
+- The overdraft interest charge job skips closed facilities and non-active accounts,
+  so a later monthly run cannot re-open a debt on a closed facility/account.
 - Pagination arithmetic uses 64-bit math with clamping, so an extreme `page` value
   can no longer overflow `Skip` and produce a negative OFFSET (HTTP 500).
 - GL journals are rounded to the stored 4dp precision before the zero-sum check,
@@ -230,7 +232,7 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 224/224 green)**
+**Verification (all eight suites on isolated fresh volumes = 227/227 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -240,7 +242,7 @@ done
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
 | `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
-| `verify-tier8.sh` | 23 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
+| `verify-tier8.sh` | 26 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).
