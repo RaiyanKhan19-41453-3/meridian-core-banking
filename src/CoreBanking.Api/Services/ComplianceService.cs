@@ -136,26 +136,36 @@ public class ComplianceService
                 }
             }
 
-            // Loan interest is stored separately in the GL (code 6101); retrieve
-            // it per repayment and convert back into the account's currency.
-            decimal loanInterest = 0m;
+            // Loan interest is stored separately in the GL (code 6101). Include
+            // the reversal journals too: a reversed repayment must no longer
+            // appear as interest paid in the tax statement.
+            decimal loanInterestLocal = 0m;
             var repayments = mine.Where(e => e.Amount < 0m
                                              && txById.TryGetValue(e.TransactionId, out var t)
                                              && t.Type == TransactionType.LoanRepayment)
                                  .Select(e => e.TransactionId).Distinct().ToList();
             if (repayments.Count > 0)
             {
+                var reversals = await _db.Transactions.AsNoTracking()
+                    .Where(t => t.Type == TransactionType.Reversal
+                                && t.OriginalTransactionId != null
+                                && repayments.Contains(t.OriginalTransactionId.Value))
+                    .Select(t => t.Id).ToListAsync();
+                var journalTxIds = repayments.Concat(reversals).ToList();
                 var glInterest = await _db.GlJournals.AsNoTracking()
-                    .Where(j => j.TransactionId != null && repayments.Contains(j.TransactionId.Value))
+                    .Where(j => j.TransactionId != null && journalTxIds.Contains(j.TransactionId.Value))
                     .Select(j => new { j.TransactionId, j.UsdRate,
                         Amounts = j.Entries.Where(e => e.GlAccount.Code == "6101").Select(e => (decimal?)e.Amount).ToList() })
                     .ToListAsync();
                 foreach (var j in glInterest)
                 {
                     var usd = j.Amounts.Where(x => x.HasValue).Sum(x => x!.Value);
-                    if (j.UsdRate > 0m) loanInterest += Math.Abs(usd / j.UsdRate);
+                    // Signed, at each journal's own FX rate, so the reversal
+                    // journal cancels the original repayment's interest.
+                    if (j.UsdRate > 0m) loanInterestLocal += usd / j.UsdRate;
                 }
             }
+            var loanInterest = Math.Abs(loanInterestLocal);
 
             result.Add(new TaxStatementDto(account.Id, account.AccountNumber, year, new[]
             {

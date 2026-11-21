@@ -102,6 +102,19 @@ curl -s -o /dev/null -X PUT $BASE/api/kyc/profile -H "Authorization: Bearer $UTO
 RISK=$(curl -s $BASE/api/kyc/profile -H "Authorization: Bearer $UTOK" | j "['riskRating']")
 check 'refreshed sanctions entry is screened' High "$RISK"
 
+echo '=== 9. reversed loan repayments drop out of the tax statement ==='
+LOAN=$(curl -s -X POST $BASE/api/loans/apply -H "Authorization: Bearer $TOK" -H "$CT" -d "{\"loanProductCode\":\"PLN-PER\",\"principal\":1000,\"termMonths\":6,\"purpose\":\"tax rev\",\"disbursementAccountId\":\"$SAV\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['loan']['summary']['id'])")
+curl -s -o /dev/null -X POST $BASE/api/loans/$LOAN/accept-and-disburse -H "Authorization: Bearer $TOK" -H "$CT" -d '{}'
+DB "update loan_installments set due_date=current_date-1 where loan_id='$LOAN' and installment_no=1" > /dev/null
+curl -s -o /dev/null -X POST $BASE/api/admin/batch/process-repayments -H "Authorization: Bearer $ADM" -H "$CT" -d '{}'
+TY=$(date -u +%Y)
+INT1=$(curl -s "$BASE/api/compliance/tax-statement?year=$TY" -H "Authorization: Bearer $ADM" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(a['lines'][0]['loanInterestPaid'] for a in d))")
+python3 -c "import sys; sys.exit(0 if float('$INT1')>0 else 1)" && check 'interest appears before reversal' ok ok || check 'interest appears before reversal' fail "$INT1"
+RID=$(DB "select id from transactions where type='LoanRepayment' order by created_at desc limit 1")
+curl -s -o /dev/null -X POST $BASE/api/admin/transactions/$RID/reverse -H "Authorization: Bearer $ADM" -H "Idempotency-Key: ${RUN_ID}c10-taxrev" -H "$CT" -d '{"description":"rev"}'
+INT2=$(curl -s "$BASE/api/compliance/tax-statement?year=$TY" -H "Authorization: Bearer $ADM" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(a['lines'][0]['loanInterestPaid'] for a in d))")
+python3 -c "import sys; sys.exit(0 if abs(float('$INT2'))<0.001 else 1)" && check 'interest removed after reversal' ok ok || check 'interest removed after reversal' fail "$INT2"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
 exit $fail
