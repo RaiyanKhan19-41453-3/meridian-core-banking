@@ -87,6 +87,13 @@ public class OverdraftService
         if (account.Status != AccountStatus.Active)
             throw BankException.Unprocessable("account_not_active", "Account is not active.");
 
+        // Serialize applications per account. The filtered unique index stops
+        // duplicates from being stored, but without this lock the losing callers
+        // hit an unhandled 23505 and return 500 instead of a clean 409.
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        await _db.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(hashtext({0}), 2)", account.Id.ToString());
+
         var existing = await _db.OverdraftFacilities
             .Where(f => f.AccountId == account.Id && f.Status != OverdraftStatus.Closed && f.Status != OverdraftStatus.Rejected)
             .Select(f => f.Id)
@@ -94,9 +101,13 @@ public class OverdraftService
         if (existing != Guid.Empty)
             throw BankException.Conflict("facility_exists", "This account already has an overdraft facility.");
 
+        OverdraftFacilityDto result;
         if (productCode is VarProductCode or VarBdtProductCode)
-            return await ApplyUnsecuredAsync(userId, account, req, productCode, productCurrency, ip);
-        return await ApplySecuredAsync(userId, account, req, productCode, productCurrency, ip);
+            result = await ApplyUnsecuredAsync(userId, account, req, productCode, productCurrency, ip);
+        else
+            result = await ApplySecuredAsync(userId, account, req, productCode, productCurrency, ip);
+        await tx.CommitAsync();
+        return result;
     }
 
     private async Task<OverdraftFacilityDto> ApplyUnsecuredAsync(Guid userId, Account account,
