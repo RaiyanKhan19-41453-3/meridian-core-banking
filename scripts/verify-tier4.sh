@@ -61,6 +61,9 @@ DISB=$(curl -s -X POST $BASE/api/loans/$LOAN_ID/accept-and-disburse -H "Authoriz
 AFTER=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3 -c "import sys,json; print([a['balance'] for a in json.load(sys.stdin) if a['id']=='$NEW_ACC'][0])")
 python3 -c "import sys; sys.exit(0 if abs(($AFTER - $BEFORE) - 4950.0) < 0.001 else 1)" && check 'disbursed 5000, fee 50 deducted' ok ok || check 'disbursed 5000, fee 50 deducted' "$AFTER - $BEFORE" 'expected 4950'
 check 'loan Active after disbursement' Active "$(echo "$DISB" | j "['summary']['status']")"
+ORG_FEE_ID=$(DB "select id from transactions where reference like 'ORG-%' order by created_at desc limit 1")
+ORG_AUDIT=$(DB "select count(*) from audit_logs where entity_name='Transaction' and entity_id='$ORG_FEE_ID'")
+check 'origination fee transaction audited' 1 "$ORG_AUDIT"
 
 echo '=== 5. disbursement idempotent (retry returns same state) ==='
 DISB2=$(curl -s -X POST $BASE/api/loans/$LOAN_ID/accept-and-disburse -H "Authorization: Bearer $TOK_D" -H "$CT" -d '{}')
