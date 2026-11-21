@@ -177,6 +177,13 @@ public class AdminController : ControllerBase
         return Ok(ToDto(result.Run, result.Replayed));
     }
 
+    [HttpPost("batch/review-limits")]
+    public async Task<IActionResult> ReviewLimits([FromBody] ChargeFeesRequest req)
+    {
+        var result = await _batch.RunLimitReviewAsync(req.Year, req.Month, AdminId(), ClientIp);
+        return Ok(ToDto(result.Run, result.Replayed));
+    }
+
     [HttpPost("batch/accrue-overdraft-interest")]
     public async Task<IActionResult> AccrueOverdraftInterest([FromBody] DayEndRequest req)
     {

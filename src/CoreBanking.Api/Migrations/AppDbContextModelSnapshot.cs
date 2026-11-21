@@ -938,6 +938,10 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("origination_fee");
 
+                    b.Property<decimal>("PenaltyInterestRate")
+                        .HasColumnType("numeric")
+                        .HasColumnName("penalty_interest_rate");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(10)
@@ -1062,6 +1066,10 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("decision_reason");
 
+                    b.Property<string>("LastLimitReviewPeriod")
+                        .HasColumnType("text")
+                        .HasColumnName("last_limit_review_period");
+
                     b.Property<decimal>("Limit")
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("limit");
@@ -1146,6 +1154,10 @@ namespace CoreBanking.Api.Migrations
                     b.Property<decimal>("FeeWaiverMinBalance")
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("fee_waiver_min_balance");
+
+                    b.Property<decimal>("FeeWaiverReducedBalance")
+                        .HasColumnType("numeric")
+                        .HasColumnName("fee_waiver_reduced_balance");
 
                     b.Property<decimal>("MonthlyFee")
                         .HasColumnType("numeric(19,4)")

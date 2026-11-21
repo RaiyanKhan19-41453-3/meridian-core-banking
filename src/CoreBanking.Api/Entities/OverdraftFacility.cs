@@ -39,6 +39,10 @@ public class OverdraftFacility
 
     public DateTime AppliedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ApprovedAt { get; set; }
+
+    /// <summary>Last automatic limit-review month (yyyy-MM), null until first review.</summary>
+    public string? LastLimitReviewPeriod { get; set; }
+
     public DateTime? ClosedAt { get; set; }
     public Guid? ClosedBy { get; set; }
     public string? CloseReason { get; set; }

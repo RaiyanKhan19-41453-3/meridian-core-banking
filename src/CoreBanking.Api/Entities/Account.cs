@@ -3,7 +3,8 @@ namespace CoreBanking.Api.Entities;
 public enum AccountType
 {
     Savings,
-    Current
+    Current,
+    TermDeposit
 }
 
 public enum AccountStatus

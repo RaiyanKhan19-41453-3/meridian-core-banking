@@ -29,6 +29,13 @@ public class LoanProduct
     /// <summary>Flat origination fee charged at disbursement.</summary>
     public decimal OriginationFee { get; set; }
 
+    /// <summary>
+    /// Annual penalty rate (fraction, e.g. 0.06 = 6% p.a.) applied to an overdue
+    /// installment's outstanding principal when calculating the monthly late fee.
+    /// 0 means only the flat late fee applies.
+    /// </summary>
+    public decimal PenaltyInterestRate { get; set; }
+
     public int MinCreditScore { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

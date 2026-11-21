@@ -65,8 +65,18 @@ public class AccountsController : ControllerBase
         // but they remain fully usable for holds and transfers.
         var productCode = currency switch
         {
-            "BDT" => req.Type == AccountType.Savings ? "SAV-BDT" : "CUR-BDT",
-            "USD" => req.Type == AccountType.Savings ? "SAV-STD" : "CUR-PER",
+            "BDT" => req.Type switch
+            {
+                AccountType.Savings => "SAV-BDT",
+                AccountType.TermDeposit => "TD-BDT",
+                _ => "CUR-BDT"
+            },
+            "USD" => req.Type switch
+            {
+                AccountType.Savings => "SAV-STD",
+                AccountType.TermDeposit => "TD-STD",
+                _ => "CUR-PER"
+            },
             _ => null
         };
         Guid? productId = null;

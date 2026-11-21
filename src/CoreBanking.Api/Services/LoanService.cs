@@ -519,7 +519,15 @@ public class LoanService
             var income = byId[clearing.Id];
 
             var now = DateTime.UtcNow;
-            var fee = LateFeeFor(currency);
+            var flatFee = LateFeeFor(currency);
+            var penaltyRate = await _db.LoanProducts
+                .Where(p => p.Id == loan.LoanProductId)
+                .Select(p => p.PenaltyInterestRate)
+                .SingleOrDefaultAsync();
+            var penalty = penaltyRate > 0m
+                ? Math.Round(installment.Principal * penaltyRate / 12m, 2, MidpointRounding.AwayFromZero)
+                : 0m;
+            var fee = flatFee + penalty;
             var txEntry = new Transaction
             {
                 Reference = reference,
@@ -527,7 +535,8 @@ public class LoanService
                 Type = TransactionType.Fee,
                 Status = TransactionStatus.Posted,
                 CreatedBy = adminId ?? loan.UserId,
-                Description = $"Late payment fee — loan {loan.Reference} installment {installment.InstallmentNo} ({fee:F2} {currency})",
+                Description = $"Late payment fee — loan {loan.Reference} installment {installment.InstallmentNo} " +
+                              $"(flat {flatFee:F2} + penalty {penalty:F2} = {fee:F2} {currency})",
                 CreatedAt = now
             };
 

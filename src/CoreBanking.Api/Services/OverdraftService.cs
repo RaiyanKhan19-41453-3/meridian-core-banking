@@ -20,6 +20,7 @@ public class OverdraftService
     public const string SecProductCode = "ODL-SEC";
     public const string VarBdtProductCode = "ODL-VAR-BDT";
     public const string SecBdtProductCode = "ODL-SEC-BDT";
+    public const string TdProductCode = "ODL-TD";
 
     // USD terms
     public const decimal VarAnnualRate = 24.0000m;      // p.a. on overdrawn balance
@@ -28,6 +29,9 @@ public class OverdraftService
     public const decimal VarMaxLimit = 25_000m;
     public const decimal SecMinLimit = 500m;
     public const decimal SecMaxLimit = 100_000m;
+    public const decimal TdAnnualRate = 9.0000m;          // p.a. — term-deposit-backed pricing
+    public const decimal TdMinLimit = 500m;
+    public const decimal TdMaxLimit = 100_000m;
     // BDT terms (Bangladesh)
     public const decimal VarBdtAnnualRate = 22.0000m;
     public const decimal SecBdtAnnualRate = 11.0000m;
@@ -49,11 +53,24 @@ public class OverdraftService
         _gl = gl;
     }
 
+    /// <summary>Product limit bounds used by application and automatic review.</summary>
+    public static (decimal Min, decimal Max) LimitsFor(string productCode) => productCode switch
+    {
+        VarProductCode => (VarMinLimit, VarMaxLimit),
+        SecProductCode => (SecMinLimit, SecMaxLimit),
+        TdProductCode => (TdMinLimit, TdMaxLimit),
+        VarBdtProductCode => (VarBdtMinLimit, VarBdtMaxLimit),
+        SecBdtProductCode => (SecBdtMinLimit, SecBdtMaxLimit),
+        _ => (VarMinLimit, VarMaxLimit)
+    };
+
     public static IReadOnlyList<OverdraftTermsDto> Terms() => new[]
     {
         new OverdraftTermsDto(VarProductCode, "USD", VarAnnualRate, VarMinLimit, VarMaxLimit,
             MinCreditScore, RequiredCollateralRatio: null, Secured: false),
         new OverdraftTermsDto(SecProductCode, "USD", SecAnnualRate, SecMinLimit, SecMaxLimit,
+            MinCreditScore: 0, RequiredCollateralRatio: 1m / SecuredLtvRatio, Secured: true),
+        new OverdraftTermsDto(TdProductCode, "USD", TdAnnualRate, TdMinLimit, TdMaxLimit,
             MinCreditScore: 0, RequiredCollateralRatio: 1m / SecuredLtvRatio, Secured: true),
         new OverdraftTermsDto(VarBdtProductCode, "BDT", VarBdtAnnualRate, VarBdtMinLimit, VarBdtMaxLimit,
             MinCreditScore, RequiredCollateralRatio: null, Secured: false),
@@ -67,9 +84,9 @@ public class OverdraftService
 
         var productCode = string.IsNullOrWhiteSpace(req.ProductCode)
             ? VarProductCode : req.ProductCode.Trim().ToUpperInvariant();
-        if (productCode is not (VarProductCode or SecProductCode or VarBdtProductCode or SecBdtProductCode))
+        if (productCode is not (VarProductCode or SecProductCode or VarBdtProductCode or SecBdtProductCode or TdProductCode))
             throw BankException.BadRequest("unknown_product",
-                $"Product must be {VarProductCode}, {SecProductCode}, {VarBdtProductCode} or {SecBdtProductCode}.");
+                $"Product must be {VarProductCode}, {SecProductCode}, {TdProductCode}, {VarBdtProductCode} or {SecBdtProductCode}.");
 
         CreditScoring.ValidateCibScore(req.CibScore);
 
@@ -136,17 +153,20 @@ public class OverdraftService
     private async Task<OverdraftFacilityDto> ApplySecuredAsync(Guid userId, Account account,
         ApplyOverdraftRequest req, string productCode, string currency, string? ip)
     {
-        var (minLimit, maxLimit, rate) = currency == "BDT"
-            ? (SecBdtMinLimit, SecBdtMaxLimit, SecBdtAnnualRate)
-            : (SecMinLimit, SecMaxLimit, SecAnnualRate);
+        var (minLimit, maxLimit, rate) = productCode == TdProductCode
+            ? (TdMinLimit, TdMaxLimit, TdAnnualRate)
+            : currency == "BDT"
+                ? (SecBdtMinLimit, SecBdtMaxLimit, SecBdtAnnualRate)
+                : (SecMinLimit, SecMaxLimit, SecAnnualRate);
 
         if (req.RequestedLimit < minLimit || req.RequestedLimit > maxLimit)
             throw BankException.BadRequest("limit_out_of_range",
                 $"Secured limit must be between {minLimit:F0} and {maxLimit:F0} {currency}.");
 
+        var collateralType = productCode == TdProductCode ? "Term Deposit" : "Savings";
         if (req.CollateralAccountId is null)
             throw BankException.BadRequest("collateral_required",
-                $"{productCode} requires CollateralAccountId (a pledged Savings account).");
+                $"{productCode} requires CollateralAccountId (a pledged {collateralType} account).");
 
         var collateral = await _db.Accounts.SingleOrDefaultAsync(a => a.Id == req.CollateralAccountId);
         if (collateral is null) throw BankException.NotFound("collateral_not_found", "Collateral account does not exist.");
@@ -155,8 +175,11 @@ public class OverdraftService
                 "The pledged account cannot be the same as the account receiving the facility.");
         if (collateral.UserId != userId)
             throw BankException.Forbidden("not_collateral_owner", "You do not own the collateral account.");
-        if (collateral.Type != AccountType.Savings)
-            throw BankException.Unprocessable("savings_collateral_only", "Collateral must be a Savings account.");
+        var expectedCollateral = productCode == TdProductCode
+            ? AccountType.TermDeposit : AccountType.Savings;
+        if (collateral.Type != expectedCollateral)
+            throw BankException.Unprocessable("invalid_collateral_type",
+                $"Collateral must be a {collateralType} account.");
         if (collateral.Status != AccountStatus.Active)
             throw BankException.Unprocessable("collateral_not_active", "Collateral account is not active.");
         if (collateral.Currency != account.Currency)

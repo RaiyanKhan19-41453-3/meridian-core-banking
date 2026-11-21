@@ -108,6 +108,14 @@ public class BatchService
             return new { feesCharged };
         }, adminId, ip);
 
+    public async Task<BatchResult> RunLimitReviewAsync(int year, int month, Guid? adminId, string? ip)
+        => await RunGuardedAsync(BatchJobType.LimitReview,
+            DateTime.SpecifyKind(new DateTime(year, month, 1), DateTimeKind.Utc), async (run, counters) =>
+            {
+                var reviewed = await ReviewLimitsAsync(year, month, adminId, ip, counters);
+                return new { limitsReviewed = reviewed };
+            }, adminId, ip);
+
     public async Task<List<BatchRun>> RecentRunsAsync(int count = 20) =>
         await _db.BatchRuns.AsNoTracking()
             .OrderByDescending(b => b.Id)
@@ -417,6 +425,64 @@ public class BatchService
         return count;
     }
 
+    /// <summary>
+    /// Monthly automatic OD limit review. Limits are nudged 10% down when the
+    /// account used under 20% of its limit in the last 90 days, or 10% up when
+    /// it used over 80%, always within the product's bounds. One review per
+    /// facility per month, recorded via LastLimitReviewPeriod.
+    /// </summary>
+    private async Task<int> ReviewLimitsAsync(int year, int month, Guid? adminId, string? ip,
+        BatchCounters counters)
+    {
+        var period = $"{year:D4}{month:D2}";
+        var facilities = await _db.OverdraftFacilities
+            .Where(f => f.Status == OverdraftStatus.Active && f.LastLimitReviewPeriod != period)
+            .ToListAsync();
+
+        var reviewed = 0;
+        foreach (var facility in facilities)
+        {
+            var ok = await RunItemAsync(counters, $"limit:{facility.Reference}", async () =>
+            {
+                var since = DateTime.UtcNow.AddDays(-90);
+                var lowest = await _db.LedgerEntries
+                    .Where(e => e.AccountId == facility.AccountId && e.PostedAt >= since)
+                    .Select(e => (decimal?)e.BalanceAfter)
+                    .MinAsync() ?? 0m;
+                var maxDrawdown = Math.Max(0m, -lowest);
+                var utilization = facility.Limit > 0m ? maxDrawdown / facility.Limit : 0m;
+
+                var (min, max) = OverdraftService.LimitsFor(facility.ProductCode);
+                var oldLimit = facility.Limit;
+                var newLimit = utilization < 0.20m
+                    ? Math.Max(min, Math.Round(facility.Limit * 0.9m, 2))
+                    : utilization > 0.80m
+                        ? Math.Min(max, Math.Round(facility.Limit * 1.1m, 2))
+                        : facility.Limit;
+
+                facility.Limit = newLimit;
+                facility.LastLimitReviewPeriod = period;
+                _audit.Write(adminId, "overdraft.limit_reviewed", nameof(OverdraftFacility),
+                    facility.Id.ToString(),
+                    new { facility.Reference, oldLimit, newLimit, utilization = Math.Round(utilization, 4), period }, ip);
+                await _db.SaveChangesAsync();
+            });
+            if (ok) reviewed++;
+        }
+        return reviewed;
+    }
+
+    /// <summary>Tiered monthly fee: full waiver above the primary threshold,
+    /// half fee above the reduced threshold, full fee below both.</summary>
+    private static decimal FeeFor(Product product, decimal balance)
+    {
+        if (product.FeeWaiverMinBalance > 0m && balance >= product.FeeWaiverMinBalance)
+            return 0m;
+        if (product.FeeWaiverReducedBalance > 0m && balance >= product.FeeWaiverReducedBalance)
+            return Math.Round(product.MonthlyFee / 2m, 2, MidpointRounding.AwayFromZero);
+        return product.MonthlyFee;
+    }
+
     private async Task<int> ChargeFeesForMonthAsync(int year, int month, Guid? adminId, string? ip, BatchCounters counters)
     {
         var period = $"{year:D4}{month:D2}";
@@ -436,12 +502,12 @@ public class BatchService
             var product = feeProducts.GetValueOrDefault(account.ProductId!.Value);
             if (product is null) continue;
             if (product.Currency != account.Currency) continue; // never charge a foreign-currency fee
-            if (account.Balance >= product.FeeWaiverMinBalance) continue; // waived
+            if (FeeFor(product, account.Balance) <= 0m) continue; // waived (fast path)
 
             var reference = $"FEE-{period}-{account.AccountNumber}";
             if (await _db.Transactions.AnyAsync(t => t.Reference == reference)) continue;
 
-            var fee = product.MonthlyFee;
+            var fee = FeeFor(product, account.Balance);
             var waived = false;
             var ok = await RunItemAsync(counters, $"fee:{account.AccountNumber}", async () =>
             {
@@ -452,13 +518,15 @@ public class BatchService
                 var income = byId[clearing.Id];
 
                 // Re-check under the row lock: a deposit racing the fee run may
-                // have pushed the balance above the waiver threshold since the
-                // fast-path check above. Don't charge a customer who now qualifies.
-                if (customer.Balance >= product.FeeWaiverMinBalance)
+                // have pushed the balance into a better waiver tier since the
+                // fast-path check above.
+                var tierFee = FeeFor(product, customer.Balance);
+                if (tierFee <= 0m)
                 {
                     waived = true;
                     return;
                 }
+                fee = tierFee;
 
                 var tx = new Transaction
                 {

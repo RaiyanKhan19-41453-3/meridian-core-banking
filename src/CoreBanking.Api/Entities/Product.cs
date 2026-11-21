@@ -3,7 +3,8 @@ namespace CoreBanking.Api.Entities;
 public enum ProductType
 {
     Savings,
-    Current
+    Current,
+    TermDeposit
 }
 
 /// <summary>
@@ -29,8 +30,14 @@ public class Product
     /// <summary>Flat monthly account fee charged when collected.</summary>
     public decimal MonthlyFee { get; set; }
 
-    /// <summary>Fee waived when balance is at or above this threshold at collection time.</summary>
+    /// <summary>Fee waived entirely when balance is at or above this threshold at collection time.</summary>
     public decimal FeeWaiverMinBalance { get; set; }
+
+    /// <summary>
+    /// Second-tier waiver: half the monthly fee is charged when the balance is
+    /// at or above this (lower) threshold. 0 disables the reduced-fee tier.
+    /// </summary>
+    public decimal FeeWaiverReducedBalance { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
