@@ -434,16 +434,24 @@ public class LedgerService
         return result;
     }
 
-    /// <summary>Find-or-create the bank-side omnibus account for a currency (inside the caller's transaction).</summary>
+    /// <summary>
+    /// Find-or-create the bank-side omnibus account for a currency. Returns a DETACHED
+    /// account (callers only need its Id). Leaving it tracked would make the subsequent
+    /// LockAccountsAsync FOR UPDATE read resolve to the stale tracked instance, so its
+    /// old Version would fail the concurrency check and turn concurrent withdrawals
+    /// into spurious 409s even though no money was misposted.
+    /// </summary>
     private async Task<Account> EnsureSystemOmnibusAsync(string currency)
     {
         currency = currency.Trim().ToUpperInvariant();
         var number = $"{SystemAccountPrefix}{currency}-OMNIBUS";
 
-        var existing = await _db.Accounts.SingleOrDefaultAsync(a => a.AccountNumber == number);
+        var existing = await _db.Accounts.AsNoTracking()
+            .SingleOrDefaultAsync(a => a.AccountNumber == number);
         if (existing is not null) return existing;
 
-        var systemUser = await _db.Users.SingleOrDefaultAsync(u => u.Email == SystemUserEmail)
+        var systemUser = await _db.Users.AsNoTracking()
+            .SingleOrDefaultAsync(u => u.Email == SystemUserEmail)
             ?? throw new InvalidOperationException("System user is missing — seed the database first.");
 
         var account = new Account
@@ -458,6 +466,7 @@ public class LedgerService
         };
         _db.Accounts.Add(account);
         await _db.SaveChangesAsync(); // inside caller's transaction — created atomically with it
+        _db.Entry(account).State = EntityState.Detached;
         return account;
     }
 
