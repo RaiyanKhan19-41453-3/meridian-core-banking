@@ -167,5 +167,20 @@ check 'exactly one reversal posted' 1 "$REVCOUNT"
 RBAL2=$(DB "select balance from accounts where id='$SAV'")
 python3 -c "import sys; sys.exit(0 if abs((float('$RBAL')-float('$RBAL2'))-1000)<0.001 else 1)" && check 'balance reversed exactly once' ok ok || check 'balance reversed exactly once' fail "$RBAL2 vs $RBAL"
 
+echo '=== 14. capitalization does not credit a closed account ==='
+CAPACC=$(curl -s -X POST $BASE/api/accounts -H "Authorization: Bearer $TOK" -H "$CT" -d '{"type":"Savings","currency":"USD"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-cap-dep" -H "$CT" -d "{\"accountId\":\"$CAPACC\",\"amount\":10000,\"description\":\"fund\"}"
+curl -s -o /dev/null -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{}'
+CAPACCR=$(DB "select count(*) from interest_accruals where account_id='$CAPACC' and not capitalized")
+python3 -c "import sys; sys.exit(0 if int('$CAPACCR')>=1 else 1)" && check 'accrual exists before close' ok ok || check 'accrual exists before close' fail ok
+CAPBAL=$(DB "select balance from accounts where id='$CAPACC'")
+curl -s -o /dev/null -X POST $BASE/api/transactions/withdraw -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-cap-drain" -H "$CT" -d "{\"accountId\":\"$CAPACC\",\"amount\":$CAPBAL,\"description\":\"drain\"}"
+curl -s -o /dev/null -X POST $BASE/api/admin/accounts/$CAPACC/close -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"reason":"test"}'
+TODAY=$(date -u +%F)
+CAPRES=$(curl -s -X POST $BASE/api/admin/batch/capitalize-interest -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"asOf\":\"$TODAY\"}")
+CAPDONE=$(DB "select count(*) from interest_accruals where account_id='$CAPACC' and capitalized")
+check 'closed account not capitalized' 0 "$CAPDONE"
+check 'closed account balance still zero' 0.0000 "$(DB "select balance from accounts where id='$CAPACC'")"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
