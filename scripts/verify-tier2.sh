@@ -40,9 +40,34 @@ check 'not replayed' False "$(echo "$DE" | python3 -c "import sys,json; print(js
 echo '=== replay day-end (same job+date → replayed, no double accrue) ==='
 DE2=$(curl -s -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{}')
 check 'replay flagged' True "$(echo "$DE2" | python3 -c "import sys,json; print(json.load(sys.stdin)['replayed'])")"
-ACCRUAL_COUNT=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc 'select count(*) from interest_accruals;')
-check 'exactly one accrual row for savings' 1 "$ACCRUAL_COUNT"
-ACCRUED=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc 'select amount from interest_accruals order by id desc limit 1;')
+
+echo '=== concurrent batch calls: exactly one executor ==='
+PAST=$(date -u -d '-2 days' +%F)
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/cc-$i.json -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"date\":\"$PAST\"}" &
+done
+wait
+EXECUTORS=$(python3 -c "
+import json
+n=0
+for i in range(1,6):
+    d=json.load(open(f'/tmp/cc-{i}.json'))
+    if not d.get('replayed'): n+=1
+print(n)")
+check 'only one of five concurrent batches executes' 1 "$EXECUTORS"
+FAILED=$(python3 -c "
+import json
+n=0
+for i in range(1,6):
+    d=json.load(open(f'/tmp/cc-{i}.json'))
+    n+=d.get('itemsFailed') or 0
+print(n)")
+check 'concurrent batches posted no duplicates' 0 "$FAILED"
+
+TODAY=$(date -u +%F)
+ACCRUAL_COUNT=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select count(*) from interest_accruals where accrual_date='$TODAY';")
+check 'exactly one accrual row for today' 1 "$ACCRUAL_COUNT"
+ACCRUED=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select amount from interest_accruals where accrual_date='$TODAY' order by id desc limit 1;")
 echo "accrued today: $ACCRUED"
 # SAV-STD pays 2.5% p.a. on $10,000 → 10000 * 0.025 / 365 = 0.6849/day
 python3 -c "import sys; sys.exit(0 if abs(float('$ACCRUED') - 0.6849) < 0.0002 else 1)" \
@@ -50,7 +75,7 @@ python3 -c "import sys; sys.exit(0 if abs(float('$ACCRUED') - 0.6849) < 0.0002 e
 
 echo '=== GL accrual journal posted (5001 debit / 2101 credit) ==='
 ACCRUAL_GL=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select count(*) from gl_journals j join gl_entries e on e.journal_id = j.id join gl_accounts g on g.id = e.gl_account_id where g.code = '5001';")
-check 'interest expense journal exists (count>=1)' 1 "$ACCRUAL_GL"
+python3 -c "import sys; sys.exit(0 if int('$ACCRUAL_GL') >= 1 else 1)" && check 'interest expense journal exists' ok ok || check 'interest expense journal exists' fail ok
 
 echo '=== capitalize accrued interest as of today ==='
 CAP=$(curl -s -X POST $BASE/api/admin/batch/capitalize-interest -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"asOf\":\"$(date -u +%F)\"}")
