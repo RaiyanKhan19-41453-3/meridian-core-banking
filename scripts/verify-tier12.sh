@@ -67,7 +67,14 @@ fi
 curl -s -o /tmp/t12-served.pdf $BASE/api/kyc/documents/$DID/content -H "Authorization: Bearer $UTOK"
 cmp -s /tmp/t12-doc.pdf /tmp/t12-served.pdf && check 'download decrypts to original' ok ok || check 'download decrypts to original' fail none
 
-echo '=== 6. interrupted scheduled payments recover on startup ==='
+echo '=== 6. interrupted batch runs recover on startup ==='
+BRID=$(DB "insert into batch_runs (job_type, run_date, status, started_at, version, items_processed, items_failed) values ('DayEnd', '2020-01-15', 'Running', now(), 0, 0, 0) returning id" | head -1)
+check 'stale run is Running before restart' Running "$(DB "select status from batch_runs where id=$BRID")"
+docker compose restart api > /dev/null 2>&1
+for i in $(seq 1 60); do code=$(curl -s -o /dev/null -w '%{http_code}' $BASE/health 2>/dev/null || true); [ "$code" = "200" ] && break; sleep 1; done
+check 'stale run marked Failed on restart' Failed "$(DB "select status from batch_runs where id=$BRID")"
+
+echo '=== 7. interrupted scheduled payments recover on startup ==='
 SAVID=$(DB "select id from accounts where account_number='AC100000000001'")
 PID=$(curl -s -X POST $BASE/api/payments/scheduled -H "Authorization: Bearer $TOK" -H "$CT" -d "{\"fromAccountId\":\"$SAVID\",\"toAccountNumber\":\"AC100000000002\",\"amount\":1,\"frequency\":\"Once\",\"scheduledDate\":\"$(date -u +%F)\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 DB "update scheduled_payments set status='Processing' where id='$PID'" > /dev/null

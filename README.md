@@ -167,7 +167,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Date-filtered statements and GL journal queries no longer 500 with `DateTimeKind.Unspecified`.
 - Future-dated batch runs are rejected; concurrent day-end calls claim the run atomically
   (`BatchRun.Version` + a distinct `Running` state + conditional UPDATE), so exactly one
-  caller posts and the rest replay. Stale Running rows are failed on startup.
+  caller posts and the rest replay. Stale Running rows are failed on startup (verified
+  by simulating a crash and restarting).
 - The bank-side omnibus account is detached after lookup, so its stale tracked `Version`
   can't turn concurrent withdrawals into spurious 409s; `FOR UPDATE` serialization works.
 - Loan applications take a per-user advisory lock so the one-open-loan rule survives
@@ -270,7 +271,7 @@ done
 - **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
   migrations, scans dependencies and runs all suites with fresh volumes.
 
-**Verification (all twelve suites on isolated fresh volumes = 308/308 green)**
+**Verification (all twelve suites on isolated fresh volumes = 310/310 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -284,7 +285,7 @@ done
 | `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
 | `verify-tier10.sh` | 21 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
 | `verify-tier11.sh` | 21 — roadmap item 13: beneficiaries, scheduled payments, idempotent sandbox rail |
-| `verify-tier12.sh` | 19 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
+| `verify-tier12.sh` | 21 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).
