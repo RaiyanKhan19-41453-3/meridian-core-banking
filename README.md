@@ -204,13 +204,13 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 203/203 green)**
+**Verification (all eight suites on isolated fresh volumes = 204/204 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 30 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
 | `verify-tier2.sh` | 22 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
 | `verify-tier3.sh` | 30 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
-| `verify-tier4.sh` | 26 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee, repayment reversal restores installment, admin portfolio) |
+| `verify-tier4.sh` | 27 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee on the batch business date, repayment reversal restores installment, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
 | `verify-tier7.sh` | 28 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
