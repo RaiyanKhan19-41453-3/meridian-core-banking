@@ -193,6 +193,10 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Interest capitalization skips non-active accounts, so a monthly run cannot credit a
   closed account and silently re-open a debt on it.
 - CSV export neutralizes leading tab/CR as well as =+-@ to stop spreadsheet formulas.
+- Customer Idempotency-Keys cannot squat reserved system reference prefixes (FEE-, LND-,
+  LRP-, PMT-, ...), so a monthly fee or repayment can never be suppressed by a client.
+- Tax statements include reversal journals, so a reversed loan repayment no longer
+  appears as interest paid.
 - Tax statements use an exclusive year-end bound, so Dec 31 afternoon postings are
   included; reconciliation now pairs subledger transactions with GL journals instead
   of relying on net sums that are always zero by construction.
@@ -276,11 +280,11 @@ done
 - **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
   migrations, scans dependencies and runs all suites with fresh volumes.
 
-**Verification (all twelve suites on isolated fresh volumes = 315/315 green)**
+**Verification (all twelve suites on isolated fresh volumes = 318/318 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
-| `verify-tier2.sh` | 23 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
+| `verify-tier2.sh` | 24 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
 | `verify-tier3.sh` | 31 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
 | `verify-tier4.sh` | 30 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee on the batch business date, repayment reversal restores installment, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
@@ -288,7 +292,7 @@ done
 | `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
 | `verify-tier8.sh` | 32 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 | `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
-| `verify-tier10.sh` | 21 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
+| `verify-tier10.sh` | 23 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
 | `verify-tier11.sh` | 23 — roadmap item 13: beneficiaries, scheduled payments, idempotent sandbox rail |
 | `verify-tier12.sh` | 24 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
 
