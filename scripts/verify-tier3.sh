@@ -127,6 +127,16 @@ check 'dismiss alert' 204 "$code"
 DISMISSED=$(curl -s "$BASE/api/admin/aml/alerts?status=Dismissed&pageSize=10" -H "Authorization: Bearer $TOK_A")
 check 'alert now Dismissed with note' true "$(echo "$DISMISSED" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if any(i['id']=='$VEL_ID' for i in d['items']) else 'false')")"
 
+# Concurrent review + dismiss on one alert must yield a single audit row.
+AID=$(echo "$ALERTS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(i['id'] for i in d['items'] if i['alertType']=='Burst'))")
+for i in 1 2 3 4 5; do
+  if [ $((i % 2)) -eq 0 ]; then ACT=review; else ACT=dismiss; fi
+  curl -s -o /dev/null -X POST $BASE/api/admin/aml/alerts/$AID/$ACT -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"note":"race"}' &
+done
+wait
+AUD=$(docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "select count(*) from audit_logs where entity_name='AmlAlert' and entity_id='$AID'")
+check 'concurrent alert closure: one audit row' 1 "$AUD"
+
 echo '=== 11. trial balance still balanced after AML-firing movements ==='
 TB=$(curl -s $BASE/api/admin/gl/trial-balance -H "Authorization: Bearer $TOK_A")
 check 'trial balance balanced' true "$(echo "$TB" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['balanced']).lower())")"

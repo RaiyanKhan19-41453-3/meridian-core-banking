@@ -198,17 +198,27 @@ public class AdminReviewController : ControllerBase
         var adminId = AdminId();
         if (adminId is null) return Unauthorized();
 
-        var alert = await _db.AmlAlerts.SingleOrDefaultAsync(a => a.Id == id);
+        var alert = await _db.AmlAlerts
+            .Select(a => new { a.Id, a.AlertType, a.UserId, a.Status })
+            .SingleOrDefaultAsync(a => a.Id == id);
         if (alert is null) throw BankException.NotFound("alert_not_found", "Alert does not exist.");
         if (alert.Status != AmlAlertStatus.Open) return NoContent(); // idempotent
 
-        alert.Status = target;
-        alert.ReviewedAt = DateTime.UtcNow;
-        alert.ReviewedBy = adminId.Value;
-        alert.ReviewNote = note?.Trim();
+        // Atomic claim: concurrent review/dismiss calls must not both write
+        // and emit duplicate audit rows for the same alert.
+        var reviewedAt = DateTime.UtcNow;
+        var trimmedNote = note?.Trim();
+        var claimed = await _db.AmlAlerts
+            .Where(a => a.Id == id && a.Status == AmlAlertStatus.Open)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Status, target)
+                .SetProperty(a => a.ReviewedAt, reviewedAt)
+                .SetProperty(a => a.ReviewedBy, adminId.Value)
+                .SetProperty(a => a.ReviewNote, trimmedNote));
+        if (claimed != 1) return NoContent();
 
         _audit.Write(adminId, target == AmlAlertStatus.Reviewed ? "aml.alert_reviewed" : "aml.alert_dismissed",
-            nameof(AmlAlert), alert.Id.ToString(),
+            nameof(AmlAlert), id.ToString(),
             new { alert.AlertType, alert.UserId, note }, ClientIp);
         await _db.SaveChangesAsync();
         return NoContent();

@@ -195,8 +195,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Tax statements use an exclusive year-end bound, so Dec 31 afternoon postings are
   included; reconciliation now pairs subledger transactions with GL journals instead
   of relying on net sums that are always zero by construction.
-- Regulatory filings and watchlist refreshes take atomic per-record claims, so racing
-  calls yield one filing/entry instead of duplicate audit rows.
+- Regulatory filings, watchlist refreshes and AML alert closures take atomic per-record
+  claims, so racing calls yield one filing/entry/closure instead of duplicate audit rows.
 - Beneficiary creation is serialized per (user, nickname) and scheduled payments are
   claimed atomically into a Processing state, so a concurrent cancel cannot stop a
   posting already in flight. Stuck Processing payments are reset to Pending on boot,
@@ -270,12 +270,12 @@ done
 - **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
   migrations, scans dependencies and runs all suites with fresh volumes.
 
-**Verification (all twelve suites on isolated fresh volumes = 307/307 green)**
+**Verification (all twelve suites on isolated fresh volumes = 308/308 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
 | `verify-tier2.sh` | 23 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
-| `verify-tier3.sh` | 30 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
+| `verify-tier3.sh` | 31 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
 | `verify-tier4.sh` | 30 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee on the batch business date, repayment reversal restores installment, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
