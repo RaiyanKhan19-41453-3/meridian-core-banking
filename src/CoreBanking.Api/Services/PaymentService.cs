@@ -174,7 +174,8 @@ public class PaymentService
                 var key = $"PMT-{payment.Id}-{payment.ScheduledDate:yyyyMMdd}";
                 var hash = RequestFingerprint.Compute(new { key, payment.Amount, payment.ToAccountNumber });
                 var result = await _ledger.TransferAsync(payment.UserId, payment.FromAccountId,
-                    payment.ToAccountNumber, payment.Amount, payment.Description, key, hash, ip);
+                    payment.ToAccountNumber, payment.Amount, payment.Description, key, hash, ip,
+                    allowReservedReference: true);
 
                 payment.LastTransactionId = result.Transaction.Id;
                 payment.LastExecutedAt = DateTime.UtcNow;

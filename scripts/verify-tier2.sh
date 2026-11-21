@@ -87,6 +87,12 @@ NEW_BAL=$(curl -s $BASE/api/accounts -H "Authorization: Bearer $TOK_D" | python3
 check 'savings balance = 10000 + accrued' ok "$(python3 -c "import sys; sys.exit(0 if float('$NEW_BAL') > 10000.0 else 1)" && echo ok)"
 echo "savings balance now: $NEW_BAL"
 
+echo '=== system reference squatting must be rejected ==='
+FY=$(date -u +%Y); FM=$(date -u +%-m)
+SQUAT=$(printf 'FEE-%04d%02d-AC100000000002' "$FY" "$FM")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK_D" -H "Idempotency-Key: $SQUAT" -H "$CT" -d "{\"accountId\":\"$CUR_ID\",\"amount\":1,\"description\":\"squat\"}")
+check 'reserved fee reference rejected' 400 "$code"
+
 echo '=== charge fees for this month ==='
 FEE=$(curl -s -X POST $BASE/api/admin/batch/charge-fees -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"year":2026,"month":11}')
 echo "$FEE"

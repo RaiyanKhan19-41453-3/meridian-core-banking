@@ -124,9 +124,10 @@ public class LedgerService
     }
 
     public async Task<LedgerResult> TransferAsync(Guid userId, Guid fromAccountId, string toAccountNumber,
-        decimal amount, string? description, string idempotencyKey, string requestHash, string? ip)
+        decimal amount, string? description, string idempotencyKey, string requestHash, string? ip,
+        bool allowReservedReference = false)
     {
-        ValidateIdempotencyKey(idempotencyKey);
+        ValidateIdempotencyKey(idempotencyKey, allowReservedReference);
         await RequireVerifiedAsync(userId);
         if (string.IsNullOrWhiteSpace(toAccountNumber))
             throw BankException.BadRequest("missing_destination", "Destination account number is required.");
@@ -495,7 +496,15 @@ public class LedgerService
                 $"Amount exceeds the single-transaction limit of {max:F2} {currency}.");
     }
 
-    private static void ValidateIdempotencyKey(string? key)
+    /// <summary>System postings use deterministic references. A customer who
+    /// guesses one (e.g. the monthly fee reference) could otherwise occupy it
+    /// first and make the system job skip its posting as a "duplicate".</summary>
+    private static readonly string[] ReservedReferencePrefixes =
+    {
+        "FEE-", "ORG-", "LND-", "LRP-", "LFEE-", "INT-", "ODINT-", "PMT-"
+    };
+
+    private static void ValidateIdempotencyKey(string? key, bool allowReserved = false)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw BankException.BadRequest("missing_idempotency_key",
@@ -503,5 +512,9 @@ public class LedgerService
         if (key.Length > 64 || key.Any(char.IsControl))
             throw BankException.BadRequest("invalid_idempotency_key",
                 "Idempotency-Key is invalid (max 64 chars, no control characters).");
+        if (!allowReserved && ReservedReferencePrefixes.Any(p =>
+                key.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+            throw BankException.BadRequest("reserved_idempotency_key",
+                "This reference format is reserved for internal bank postings.");
     }
 }
