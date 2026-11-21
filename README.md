@@ -166,7 +166,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Production startup refuses the committed dev JWT key.
 - Date-filtered statements and GL journal queries no longer 500 with `DateTimeKind.Unspecified`.
 - Future-dated batch runs are rejected; concurrent day-end calls claim the run atomically
-  (`BatchRun.Version` + conditional UPDATE), so exactly one caller posts and the rest replay.
+  (`BatchRun.Version` + a distinct `Running` state + conditional UPDATE), so exactly one
+  caller posts and the rest replay. Stale Running rows are failed on startup.
 - The bank-side omnibus account is detached after lookup, so its stale tracked `Version`
   can't turn concurrent withdrawals into spurious 409s; `FOR UPDATE` serialization works.
 - Loan applications take a per-user advisory lock so the one-open-loan rule survives

@@ -14,6 +14,7 @@ public enum BatchJobType
 
 public enum BatchRunStatus
 {
+    Running,   // claimed by an executing caller — never claimable by another
     Succeeded,
     Partial,
     Failed

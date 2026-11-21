@@ -170,7 +170,9 @@ using (var scope = app.Services.CreateScope())
     // Reconcile stale batch runs — any unfinished job from a previous process
     // (crash, restart, OOM kill) is marked Failed instead of lingering as Partial.
     var stale = await db.BatchRuns
-        .Where(r => r.FinishedAt == null && r.Status == CoreBanking.Api.Entities.BatchRunStatus.Partial)
+        .Where(r => r.FinishedAt == null
+                    && (r.Status == CoreBanking.Api.Entities.BatchRunStatus.Partial
+                        || r.Status == CoreBanking.Api.Entities.BatchRunStatus.Running))
         .ToListAsync();
     foreach (var r in stale)
     {

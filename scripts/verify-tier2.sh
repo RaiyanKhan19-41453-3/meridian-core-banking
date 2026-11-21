@@ -44,9 +44,11 @@ check 'replay flagged' True "$(echo "$DE2" | python3 -c "import sys,json; print(
 echo '=== concurrent batch calls: exactly one executor ==='
 PAST=$(date -u -d '-2 days' +%F)
 for i in 1 2 3 4 5; do
-  curl -s -o /tmp/cc-$i.json -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"date\":\"$PAST\"}" &
+  curl -s -o /tmp/cc-$i.json -w '%{http_code}' -X POST $BASE/api/admin/batch/day-end -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"date\":\"$PAST\"}" > /tmp/cc-$i.code &
 done
 wait
+echo "  concurrent codes: $(cat /tmp/cc-*.code | tr -d '\n')"
+for i in 1 2 3 4 5; do echo "  cc-$i: $(head -c 160 /tmp/cc-$i.json)"; done
 EXECUTORS=$(python3 -c "
 import json
 n=0

@@ -615,7 +615,8 @@ public class BatchService
         // Only Succeeded runs are a true replay. A Partial/Failed run was aborted by a
         // crash, DB outage or a partially completed window — the per-item postings are
         // deterministic, so re-attempting the same (job, date) is safe.
-        if (existing?.Status == BatchRunStatus.Succeeded)
+        if (existing?.Status == BatchRunStatus.Succeeded
+            || existing?.Status == BatchRunStatus.Running)
             return new BatchResult(existing, Replayed: true);
 
         BatchRun run;
@@ -626,9 +627,10 @@ public class BatchService
             // replay instead of executing the posting body concurrently.
             var claimed = await _db.BatchRuns
                 .Where(b => b.Id == existing.Id && b.Version == existing.Version
-                            && b.Status != BatchRunStatus.Succeeded)
+                            && b.Status != BatchRunStatus.Succeeded
+                            && b.Status != BatchRunStatus.Running)
                 .ExecuteUpdateAsync(s => s
-                    .SetProperty(b => b.Status, BatchRunStatus.Partial)
+                    .SetProperty(b => b.Status, BatchRunStatus.Running)
                     .SetProperty(b => b.Version, existing.Version + 1)
                     .SetProperty(b => b.StartedAt, DateTime.UtcNow)
                     .SetProperty(b => b.FinishedAt, (DateTime?)null)
@@ -647,7 +649,7 @@ public class BatchService
             {
                 JobType = jobType,
                 RunDate = runDate.Date,
-                Status = BatchRunStatus.Partial,
+                Status = BatchRunStatus.Running,
                 StartedAt = DateTime.UtcNow
             };
             _db.BatchRuns.Add(run);
