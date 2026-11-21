@@ -151,6 +151,25 @@ All money columns are `numeric(19,4)`; tables/columns are snake_case.
 
 Invariants: `sum(ledger_entries.amount) = 0` per transaction; `accounts.balance = Σ legs` — always updated in the same DB transaction as the legs; `sum(gl_entries.amount) = 0` per journal.
 
+### Adversarial hardening (recent rounds)
+
+Repeated attack-and-fix rounds closed these correctness gaps:
+
+- Interest rates were 100× too small; corrected across savings/loan/OD products.
+- Refresh-token rotation race and missing refresh persistence; TOTP codes are now single-use.
+- Customer daily-outflow limits and AML velocity/burst rules count only customer-initiated
+  withdrawals/transfers — bank-posted fees, loan repayments, interest and reversals no longer
+  consume the customer's allowance or create false alerts.
+- Loan-repayment reversal now restores the installment (Paid → Overdue) and the loan
+  (Completed → Active) and clears the paid timestamp/transaction link.
+- Watchlist High-risk flag is sticky; renaming a customer can no longer self-clear it.
+- Production startup refuses the committed dev JWT key.
+- Date-filtered statements and GL journal queries no longer 500 with `DateTimeKind.Unspecified`.
+- Future-dated batch runs are rejected; concurrent day-end calls claim the run atomically
+  (`BatchRun.Version` + conditional UPDATE), so exactly one caller posts and the rest replay.
+- The bank-side omnibus account is detached after lookup, so its stale tracked `Version`
+  can't turn concurrent withdrawals into spurious 409s; `FOR UPDATE` serialization works.
+
 ## Implementation roadmap
 
 1. ✅ Setup — compose stack, migrations on startup, health checks
@@ -176,23 +195,28 @@ docker compose up -d --build          # rebuild everything
 docker compose logs -f api            # follow API logs
 docker compose down -v                # wipe ALL data (fresh seed)
 
-# Six E2E verification suites — run in order on a fresh volume
-# (wait for healthy first: curl http://localhost:8090/health → 200)
-for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6; do
+# Eight E2E verification suites. EACH needs its own FRESH volume — they assert
+# exact balances/counts and give misleading failures on a dirty database.
+for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6 verify-tier7 verify-tier8; do
+  docker compose down -v && docker compose up -d --build
+  # wait for /health → 200, then:
   /home/shoue/core-banking/scripts/$f.sh
 done
 ```
 
-**Verification (all seven suites on isolated fresh volumes = 173/173 green)**
+**Verification (all eight suites on isolated fresh volumes = 202/202 green)**
 | Suite | Checks |
 |------|--------|
-| `verify.sh` | 25 — auth, 2FA, lockout, refresh rotation, idempotency (actor-scoped), freeze/close/reverse, limits |
-| `verify-tier2.sh` | 17 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), statement |
-| `verify-tier3.sh` | 27 — KYC flow, document vault, watchlist, AML rules, admin review |
-| `verify-tier4.sh` | 22 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee, admin portfolio) |
+| `verify.sh` | 30 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
+| `verify-tier2.sh` | 22 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
+| `verify-tier3.sh` | 30 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
+| `verify-tier4.sh` | 26 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee, repayment reversal restores installment, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
 | `verify-tier7.sh` | 28 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
+| `verify-tier8.sh` | 12 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 
-Each suite deliberately seeds its own unique user with randomized emails and **per-run unique idempotency-key suffixes** — safe to re-run against the same volume without wiping.
+**Always wipe the volume between suites.** Re-running a suite against a dirty
+database produces misleading failures (duplicate accruals, stale balances).
+`docker compose down -v` then `docker compose up -d --build` before each suite.
 
