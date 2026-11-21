@@ -19,6 +19,9 @@ if docker exec corebanking-postgres psql -U corebanking -d corebanking -tAc "sel
 fi
 
 echo '=== 1. demo login ==='
+# Security guard: Production startup with the committed dev JWT key must fail
+PROD_OUT=$(docker run --rm --network none -e ASPNETCORE_ENVIRONMENT=Production -e Jwt__Key='dev-only-insecure-key-change-me-in-production-0123456789abcdef' -e ConnectionStrings__Default='Host=localhost;Database=x;Username=x;Password=x' -w /app --entrypoint dotnet core-banking-api CoreBanking.Api.dll 2>&1 | head -1)
+check 'production refuses dev JWT key' true "$(echo "$PROD_OUT" | grep -q 'Refusing to start' && echo true)"
 LOGIN=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d '{"email":"demo@bank.com","password":"Demo123!"}')
 AT=$(echo "$LOGIN" | j "['accessToken']"); RT=$(echo "$LOGIN" | j "['refreshToken']")
 check 'login returns access token' true "$([ -n "$AT" ] && echo true)"
