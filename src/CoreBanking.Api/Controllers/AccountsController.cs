@@ -126,9 +126,7 @@ public class AccountsController : ControllerBase
         var fromUtc = fromDate.HasValue
             ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc)
             : (DateTime?)null;
-        var toExclusive = toDate.HasValue
-            ? DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc)
-            : (DateTime?)null;
+        var toExclusive = DateRange.ExclusiveEnd(toDate);
 
         var baseQuery =
             from e in _db.LedgerEntries

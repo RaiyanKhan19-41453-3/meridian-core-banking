@@ -350,8 +350,7 @@ public class AdminController : ControllerBase
             throw BankException.BadRequest("invalid_date_range", "fromDate must be on or before toDate.");
         var fromUtc = fromDate.HasValue
             ? DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc) : (DateTime?)null;
-        var toExclusive = toDate.HasValue
-            ? DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc) : (DateTime?)null;
+        var toExclusive = DateRange.ExclusiveEnd(toDate);
 
         var query = _db.GlJournals.AsNoTracking()
             .Where(j => (fromUtc == null || j.BusinessDate >= fromUtc.Value)
