@@ -75,9 +75,14 @@ public class AmlService
             {
                 var account = customerAccounts.Single(a => a.Id == leg.AccountId);
 
+                // Only customer-initiated outflows count toward velocity/burst.
+                // Bank-posted debits (fees, loan repayments, reversals) are not
+                // customer behavior and would create false AML alerts.
                 var since24h = DateTime.UtcNow.AddHours(-24);
                 var out24h = await _db.LedgerEntries
                     .Where(e => e.AccountId == account.Id && e.Amount < 0m && e.PostedAt >= since24h)
+                    .Where(e => _db.Transactions.Any(t => t.Id == e.TransactionId
+                        && (t.Type == TransactionType.Withdrawal || t.Type == TransactionType.Transfer)))
                     .SumAsync(e => (decimal?)e.Amount) ?? 0m;
                 if (-out24h * await _gl.UsdRateForAsync(tx.CreatedAt, account.Currency) >= Velocity24hLimitUsd
                     && !await HasOpenAlertAsync(account.UserId, AmlAlertType.Velocity24h, since24h))
@@ -99,7 +104,10 @@ public class AmlService
 
                 var since1h = DateTime.UtcNow.AddHours(-1);
                 var out1h = await _db.LedgerEntries
-                    .CountAsync(e => e.AccountId == account.Id && e.Amount < 0m && e.PostedAt >= since1h);
+                    .Where(e => e.AccountId == account.Id && e.Amount < 0m && e.PostedAt >= since1h)
+                    .Where(e => _db.Transactions.Any(t => t.Id == e.TransactionId
+                        && (t.Type == TransactionType.Withdrawal || t.Type == TransactionType.Transfer)))
+                    .CountAsync();
                 if (out1h >= BurstWindowCount && !await HasOpenAlertAsync(account.UserId, AmlAlertType.Burst, since1h))
                 {
                     _db.AmlAlerts.Add(new AmlAlert

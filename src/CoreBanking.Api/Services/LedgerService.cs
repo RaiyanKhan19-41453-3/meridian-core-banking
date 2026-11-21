@@ -407,8 +407,14 @@ public class LedgerService
     private async Task<decimal> GetOutflowTodayAsync(Guid accountId)
     {
         var dayStart = DateTime.UtcNow.Date;
+        // Only CUSTOMER-INITIATED outflows (withdrawals/transfers) count toward the
+        // daily cap. Bank-posted debits (fees, loan repayments, reversals, interest
+        // charges) are not money the customer chose to send — counting them would
+        // silently shrink the customer's remaining daily allowance.
         var sum = await _db.LedgerEntries
             .Where(e => e.AccountId == accountId && e.PostedAt >= dayStart && e.Amount < 0)
+            .Where(e => _db.Transactions.Any(t => t.Id == e.TransactionId
+                && (t.Type == TransactionType.Withdrawal || t.Type == TransactionType.Transfer)))
             .SumAsync(e => (decimal?)e.Amount) ?? 0m;
         return -sum;
     }

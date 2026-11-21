@@ -115,6 +115,51 @@ public class LoanService
         return loan;
     }
 
+    /// <summary>
+    /// Restore loan state after an admin reverses a repayment transaction.
+    /// Otherwise the customer gets their money back while the installment
+    /// still says Paid and a fully repaid loan stays Completed.
+    /// </summary>
+    public async Task OnTransactionReversedAsync(Guid transactionId, Guid adminId, string? ip)
+    {
+        var reversed = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Id == transactionId)
+            .Select(t => t.Reference)
+            .SingleOrDefaultAsync();
+        if (reversed is not null && reversed.StartsWith("LRP-", StringComparison.Ordinal))
+        {
+            // LRP-<loanReference>-<installmentNo>; loan reference is like LN-2026-311611,
+            // i.e. all segments between the LRP prefix and the final installment number.
+            var parts = reversed.Split('-');
+            if (parts.Length >= 4
+                && Guid.TryParse(_db.Loans.AsNoTracking()
+                        .Where(l => l.Reference == string.Join('-', parts.Skip(1).Take(parts.Length - 2)))
+                        .Select(l => l.Id.ToString())
+                        .FirstOrDefault(), out var loanId)
+                && int.TryParse(parts[^1], out var installmentNo))
+            {
+                var installment = await _db.LoanInstallments
+                    .Include(i => i.Loan)
+                    .SingleOrDefaultAsync(i => i.LoanId == loanId && i.InstallmentNo == installmentNo);
+                if (installment is not null && installment.Status == LoanInstallmentStatus.Paid)
+                {
+                    installment.Status = LoanInstallmentStatus.Overdue;
+                    installment.PaidAt = null;
+                    installment.PaymentTransactionId = null;
+                    if (installment.Loan.Status == LoanStatus.Completed)
+                    {
+                        installment.Loan.Status = LoanStatus.Active;
+                        installment.Loan.CompletedAt = null;
+                    }
+                    _audit.Write(adminId, "loan.repayment_reversed", nameof(Loan),
+                        installment.LoanId.ToString(),
+                        new { reference = reversed, installmentNo }, ip);
+                    await _db.SaveChangesAsync();
+                }
+            }
+        }
+    }
+
     // ---------- acceptance & disbursement ----------
 
     /// <summary>Accept the approved offer and disburse into the disbursement account.</summary>
