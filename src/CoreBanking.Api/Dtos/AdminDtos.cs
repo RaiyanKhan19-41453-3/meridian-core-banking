@@ -30,3 +30,27 @@ public record GlLegDto(string Code, string Name, decimal Amount);
 public record GlJournalDto(Guid Id, string Number, Guid? TransactionId, DateTime BusinessDate,
     decimal UsdRate, string Description, DateTime CreatedAt, IReadOnlyList<GlLegDto> Legs);
 public record GlJournalPage(IReadOnlyList<GlJournalDto> Items, int Page, int PageSize, int Total, int TotalPages);
+
+// ---------- compliance reporting (roadmap item 14) ----------
+
+public record ComplianceAlertDto(Guid Id, string Category, string AlertType, string Severity,
+    string Status, Guid UserId, string UserEmail, Guid? TransactionId, string Details,
+    DateTime CreatedAt, DateTime? FiledAt, string? FiledReference);
+
+public record FilingRequest([Required, MaxLength(80)] string Reference);
+
+public record TaxLineDto(string Currency, decimal InterestEarned, decimal InterestPaid,
+    decimal FeesPaid, decimal LoanInterestPaid);
+
+public record TaxStatementDto(Guid AccountId, string AccountNumber, int Year,
+    IReadOnlyList<TaxLineDto> Lines);
+
+public record ReconciliationLineDto(string Currency, decimal LedgerNet, decimal GlUsdNet,
+    decimal ExpectedUsdNet, decimal Difference, bool Balanced);
+
+public record ReconciliationDto(IReadOnlyList<ReconciliationLineDto> Lines, bool Balanced);
+
+public record WatchlistEntryRequest([Required, MaxLength(200)] string FullName,
+    [Required, MaxLength(80)] string Source);
+
+public record WatchlistRefreshRequest([Required] IReadOnlyList<WatchlistEntryRequest> Entries);

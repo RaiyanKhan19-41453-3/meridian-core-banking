@@ -44,4 +44,9 @@ public class AmlAlert
     public DateTime? ReviewedAt { get; set; }
     public Guid? ReviewedBy { get; set; }
     public string? ReviewNote { get; set; }
+
+    /// <summary>Regulatory filing (CTR/SAR) tracking — set once a report is submitted.</summary>
+    public DateTime? FiledAt { get; set; }
+    public Guid? FiledBy { get; set; }
+    public string? FiledReference { get; set; }
 }

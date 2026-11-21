@@ -117,6 +117,18 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("details");
 
+                    b.Property<DateTime?>("FiledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("filed_at");
+
+                    b.Property<Guid?>("FiledBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("filed_by");
+
+                    b.Property<string>("FiledReference")
+                        .HasColumnType("text")
+                        .HasColumnName("filed_reference");
+
                     b.Property<string>("ReviewNote")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)")
