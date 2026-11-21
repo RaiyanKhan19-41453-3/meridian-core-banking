@@ -77,5 +77,9 @@ echo '=== 5. ledger integrity: every transaction sums to zero ==='
 UNBAL=$(DB "select count(*) from (select transaction_id from ledger_entries group by transaction_id having sum(amount)<>0) t")
 check 'all transactions balanced' 0 "$UNBAL"
 
+echo '=== 6. GL journal numbers are collision-resistant ==='
+BADNUM=$(DB "select count(*) from gl_journals where number !~ '^GLJ-[0-9]{8}-[0-9a-f]{12}\$'")
+check 'GL numbers use 12-hex suffix' 0 "$BADNUM"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
