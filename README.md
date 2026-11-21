@@ -254,6 +254,8 @@ done
   (`openssl rand -base64 64` for `JWT_KEY`, `openssl rand -base64 48` for
   `Security__EncryptionKey`). `.env`, `certs/` and `backups/` are gitignored.
   The API refuses to start outside Development with the committed dev keys.
+- **Secrets**: the production overlay also passes `Security__EncryptionKey` to the API;
+  without it every KYC endpoint fails at startup.
 - **TLS**: place certificates in `./certs/fullchain.pem` and `privkey.pem`,
   then run `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
   The production overlay disables demo seeding, strictens rate limits, stops
@@ -271,7 +273,7 @@ done
 - **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
   migrations, scans dependencies and runs all suites with fresh volumes.
 
-**Verification (all twelve suites on isolated fresh volumes = 312/312 green)**
+**Verification (all twelve suites on isolated fresh volumes = 313/313 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -285,7 +287,7 @@ done
 | `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
 | `verify-tier10.sh` | 21 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
 | `verify-tier11.sh` | 23 — roadmap item 13: beneficiaries, scheduled payments, idempotent sandbox rail |
-| `verify-tier12.sh` | 21 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
+| `verify-tier12.sh` | 22 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).

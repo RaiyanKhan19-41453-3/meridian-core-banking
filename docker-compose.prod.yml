@@ -6,6 +6,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Seed__IncludeDemoData: "false"
+      # Without this the EncryptionService singleton fails to resolve and every
+      # KYC endpoint 500s in production.
+      Security__EncryptionKey: ${Security__EncryptionKey:?Set Security__EncryptionKey in .env}
       RateLimiting__AuthPermitLimit: ${RateLimiting__AuthPermitLimit:-10}
       RateLimiting__MoneyPermitLimit: ${RateLimiting__MoneyPermitLimit:-30}
       RateLimiting__WindowMinutes: ${RateLimiting__WindowMinutes:-1}
