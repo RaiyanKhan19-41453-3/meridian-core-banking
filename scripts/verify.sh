@@ -90,6 +90,9 @@ curl -s "$BASE/api/accounts/$ACC_ID/statement?format=csv" -H "Authorization: Bea
 TODAY=$(date -u +%F)
 code=$(curl -s -o /tmp/stmt-date.out -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?fromDate=$TODAY&toDate=$TODAY" -H "Authorization: Bearer $AT")
 check 'date-filtered statement succeeds' 200 "$code"
+# DateTime.MaxValue.Date.AddDays(1) used to overflow → 500
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?toDate=9999-12-31" -H "Authorization: Bearer $AT")
+check 'max date filter does not 500' 200 "$code"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/accounts/$ACC_ID/statement?fromDate=2026-12-31&toDate=2026-01-01" -H "Authorization: Bearer $AT")
 check 'inverted date range rejected' 400 "$code"
 # Overflowing (page-1)*pageSize used to emit a negative OFFSET → 500

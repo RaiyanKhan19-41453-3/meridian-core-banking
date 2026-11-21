@@ -123,6 +123,8 @@ check 'trial balance balanced' true "$(echo "$TB" | python3 -c "import sys,json;
 
 echo '=== GL journals readable + all balanced ==='
 curl -s "$BASE/api/admin/gl/journals?pageSize=5" -H "Authorization: Bearer $TOK_A" | python3 -c "import sys,json; d=json.load(sys.stdin); print('journals total:', d['total']); [print(j['number'], 'rate', str(j['usdRate']), [(l['code'], str(l['amount'])) for l in j['legs']]) for j in d['items']]"
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/admin/gl/journals?toDate=9999-12-31" -H "Authorization: Bearer $TOK_A")
+check 'max date GL filter does not 500' 200 "$code"
 
 echo '=== batch runs history ==='
 curl -s "$BASE/api/admin/batch/runs" -H "Authorization: Bearer $TOK_A" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(r['jobType'], r['runDate'][:10], r['status'], 'processed='+str(r['itemsProcessed']), 'failed='+str(r['itemsFailed'])) for r in d]"
