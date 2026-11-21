@@ -24,7 +24,15 @@ public class GlService
     public async Task<GlJournal?> AttachAsync(Transaction transaction, IReadOnlyList<LedgerEntry> legs,
         IReadOnlyDictionary<Guid, Account> accountsById, string currency, DateTime? businessDate = null)
     {
-        var rate = await UsdRateForAsync(transaction.CreatedAt, currency);
+        // A back-dated batch posting must normalize at the rate effective for its
+        // business date, not the wall-clock time the job happened to execute.
+        // Business dates built as `new DateTime(y, m, 1)` are Kind=Unspecified —
+        // Npgsql rejects those for timestamptz, so normalize the same way
+        // AttachRawAsync does for BusinessDate.
+        var rateDate = businessDate.HasValue
+            ? DateTime.SpecifyKind(businessDate.Value.Date, DateTimeKind.Utc)
+            : transaction.CreatedAt;
+        var rate = await UsdRateForAsync(rateDate, currency);
 
         // Convention: GL legs are DEBIT-positive, i.e. the inverse of subledger
         // (balance-change) signs. Journals net to zero and every account's

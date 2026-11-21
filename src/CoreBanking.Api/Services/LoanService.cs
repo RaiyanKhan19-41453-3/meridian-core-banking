@@ -403,7 +403,7 @@ public class LoanService
                     break;
                 case RepayOutcome.InsufficientFunds:
                     await MarkOverdueAsync(installment.Id);
-                    await ChargeLateFeeAsync(loan, installment, adminId, ip);
+                    await ChargeLateFeeAsync(loan, installment, adminId, ip, date);
                     missed++;
                     break;
                 default:
@@ -432,12 +432,15 @@ public class LoanService
     /// Deterministic reference → never charged twice for the same installment in the same month.
     /// Posts even into overdraft — bank levies are never blocked by the debtor's funds.
     /// </summary>
-    private async Task ChargeLateFeeAsync(Loan loan, LoanInstallment installment, Guid? adminId, string? ip)
+    private async Task ChargeLateFeeAsync(Loan loan, LoanInstallment installment, Guid? adminId,
+        string? ip, DateTime businessDate)
     {
         try
         {
             _ = adminId;
-            var period = DateTime.UtcNow.ToString("yyyyMM");
+            // Use the batch's business date, not wall-clock time: a back-dated
+            // catch-up run must charge the fee for the period it is processing.
+            var period = businessDate.ToString("yyyyMM");
             var reference = $"LFEE-{loan.Reference}-{installment.InstallmentNo}-{period}";
             if (await _db.Transactions.AnyAsync(t => t.Reference == reference)) return;
 
@@ -476,7 +479,7 @@ public class LoanService
 
             _db.Transactions.Add(txEntry);
             _db.LedgerEntries.AddRange(entries);
-            await _gl.AttachAsync(txEntry, entries, byId, customer.Currency);
+            await _gl.AttachAsync(txEntry, entries, byId, customer.Currency, businessDate);
 
             customer.Balance -= fee; customer.Version += 1;
             income.Balance += fee; income.Version += 1;
