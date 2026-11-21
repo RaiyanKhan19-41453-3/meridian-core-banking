@@ -28,7 +28,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Default: >-
         Host=postgres;Port=5432;Database=${POSTGRES_DB:-corebanking};
-        Username=${POSTGRES_USER:-corebanking};Password=${POSTGRES_PASSWORD}
+        Username=${POSTGRES_USER:-corebanking};Password=${POSTGRES_PASSWORD};Maximum Pool Size=40;Minimum Pool Size=0
       Jwt__Key: ${JWT_KEY:?Set JWT_KEY in .env}
       Jwt__Issuer: core-banking
       Jwt__Audience: core-banking-clients

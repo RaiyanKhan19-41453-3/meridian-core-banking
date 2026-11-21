@@ -77,6 +77,9 @@ grep -q 'Seed__AdminPassword' /home/shoue/core-banking/docker-compose.prod.yml \
 grep -q 'SeedEssentialAsync' /home/shoue/core-banking/src/CoreBanking.Api/Data/DbSeeder.cs \
   && check 'essential bootstrap separated from demo seed' ok ok \
   || check 'essential bootstrap separated from demo seed' fail none
+grep -q 'Maximum Pool Size' /home/shoue/core-banking/docker-compose.yml \
+  && check 'API connection pool capped below Postgres max' ok ok \
+  || check 'API connection pool capped below Postgres max' fail none
 
 echo '=== 7. interrupted batch runs recover on startup ==='
 BRID=$(DB "insert into batch_runs (job_type, run_date, status, started_at, version, items_processed, items_failed) values ('DayEnd', '2020-01-15', 'Running', now(), 0, 0, 0) returning id" | head -1)
