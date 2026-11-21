@@ -169,6 +169,18 @@ Repeated attack-and-fix rounds closed these correctness gaps:
   (`BatchRun.Version` + conditional UPDATE), so exactly one caller posts and the rest replay.
 - The bank-side omnibus account is detached after lookup, so its stale tracked `Version`
   can't turn concurrent withdrawals into spurious 409s; `FOR UPDATE` serialization works.
+- Loan applications take a per-user advisory lock so the one-open-loan rule survives
+  concurrent submits; disbursement is serialized per loan so racing accepts are idempotent
+  instead of 500ing on the unique transaction reference; overdraft applications are
+  serialized per account so losers get a clean 409 instead of a 500.
+- Late fees and GL rates use the batch business date, not wall-clock time; back-dated
+  catch-up runs charge the correct month and post on the correct accounting date.
+- Generated references use collision-resistant suffixes (12-hex GL, 9-digit loan/OD).
+- Request fingerprints include the DTO type, so the same Idempotency-Key cannot replay
+  a deposit as a withdrawal when both requests have identical shapes.
+- Startup reconciliation repairs installments left Paid by a crash between reversing
+  their payment and restoring loan state; monthly fee waivers are re-checked under
+  the account row lock so a racing deposit cannot cause a spurious charge.
 
 ## Implementation roadmap
 
