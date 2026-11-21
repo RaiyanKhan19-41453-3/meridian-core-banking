@@ -175,6 +175,13 @@ public class LoanService
     public async Task<Loan> DisburseAsync(Guid callerId, bool callerIsAdmin, Guid loanId, string? ip)
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
+        // Serialize concurrent accept/disburse calls for the same loan. Without
+        // this, racing callers all read Approved, all pass the idempotency check,
+        // and all try to insert LND-<reference> — one posts, the rest 500 on the
+        // unique index. The lock is transaction-scoped, so the loser re-reads
+        // below and returns the already-disbursed state idempotently.
+        await _db.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(hashtext({0}), 1)", loanId.ToString());
 
         var loan = await _db.Loans
             .Include(l => l.LoanProduct)
