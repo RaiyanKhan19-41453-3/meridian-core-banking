@@ -102,6 +102,12 @@ INST1C=$(DB "select status from loan_installments where loan_id = '$LOAN_ID' and
 check 'installment un-paid after reversal' Overdue "$INST1C"
 LOAN_STATUS=$(DB "select status from loans where id = '$LOAN_ID'")
 check 'loan back to Active after reversal' Active "$LOAN_STATUS"
+# The original repayment had 3 GL legs (deposits / principal / interest income).
+# The reversal must mirror all three, otherwise interest income stays recognised.
+REV_GL=$(DB "select count(*) from gl_journals j join gl_entries e on e.journal_id=j.id where j.transaction_id=(select id from transactions where reference='${RUN_ID}t4-rev-repay')")
+check 'reversal mirrors 3 GL legs' 3 "$REV_GL"
+INT_GL=$(DB "select coalesce(sum(e.amount),0) from gl_entries e join gl_accounts g on g.id=e.gl_account_id where g.code='6101'")
+python3 -c "import sys; sys.exit(0 if abs(float('$INT_GL')) < 0.0001 else 1)" && check 'loan interest income reversed to zero' ok ok || check 'loan interest income reversed to zero' fail "$INT_GL"
 
 echo '=== 8. loan repayment posts double-entry + GL journal balanced ==='
 UNBALANCED=$(DB "select count(*) from (select journal_id from gl_entries group by journal_id having sum(amount) <> 0) t")
