@@ -47,7 +47,7 @@ public class AdminReviewController : ControllerBase
 
         var total = await query.CountAsync();
         var items = await query
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .Select(p => new PendingProfileDto(
                 p.UserId,
@@ -168,7 +168,7 @@ public class AdminReviewController : ControllerBase
         var total = await query.CountAsync();
         var alerts = await query
             .OrderByDescending(a => a.Id)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .ToListAsync();
 

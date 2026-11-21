@@ -86,7 +86,7 @@ public class OverdraftController : ControllerBase
         var rows = await _db.OverdraftAccruals.AsNoTracking()
             .Where(a => a.FacilityId == id)
             .OrderByDescending(a => a.AccrualDate)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .Select(a => new OverdraftAccrualDto(a.Id, a.AccrualDate, a.Amount, a.Charged, a.ChargedAt))
             .ToListAsync();

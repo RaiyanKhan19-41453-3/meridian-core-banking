@@ -148,7 +148,7 @@ public class AccountsController : ControllerBase
         }
 
         var total = await baseQuery.CountAsync();
-        var items = await baseQuery.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+        var items = await baseQuery.Skip(Pagination.Skip(page, pageSize)).Take(pageSize).ToListAsync();
         var totalPages = (int)Math.Ceiling(total / (double)pageSize);
         return Ok(new PagedResult<StatementLine>(items, page, pageSize, total, totalPages));
     }

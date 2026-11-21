@@ -204,7 +204,7 @@ public class AdminController : ControllerBase
         var total = await query.CountAsync();
         var facilities = await query
             .OrderByDescending(f => f.AppliedAt)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .ToListAsync();
 
@@ -275,7 +275,7 @@ public class AdminController : ControllerBase
         var total = await query.CountAsync();
         var loans = await query
             .OrderByDescending(l => l.AppliedAt)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .ToListAsync();
 
@@ -362,7 +362,7 @@ public class AdminController : ControllerBase
         var total = await query.CountAsync();
         var items = await query
             .Include(j => j.Entries).ThenInclude(e => e.GlAccount)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .Select(j => new GlJournalDto(j.Id, j.Number, j.TransactionId, j.BusinessDate, j.UsdRate,
                 j.Description, j.CreatedAt,
@@ -391,7 +391,7 @@ public class AdminController : ControllerBase
         var total = await query.CountAsync();
         var items = await query
             .OrderByDescending(a => a.Id)
-            .Skip((page - 1) * pageSize)
+            .Skip(Pagination.Skip(page, pageSize))
             .Take(pageSize)
             .Select(a => new
             {
