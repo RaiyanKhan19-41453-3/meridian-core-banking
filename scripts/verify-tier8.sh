@@ -128,5 +128,12 @@ check 'disbursement reversal posted' 201 "$code"
 LOAN_ST=$(DB "select status from loans where id='$LOAN_ID'")
 check 'loan back to Approved after disbursement reversal' Approved "$LOAN_ST"
 
+echo '=== 11. system accounts cannot be frozen or closed ==='
+SYSACC=$(DB "select id from accounts where account_number='SYS-USD-OMNIBUS'")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/admin/accounts/$SYSACC/freeze -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"reason":"test"}')
+check 'omnibus freeze rejected' 422 "$code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/admin/accounts/$SYSACC/close -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"reason":"test"}')
+check 'omnibus close rejected' 422 "$code"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
