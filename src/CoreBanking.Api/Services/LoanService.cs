@@ -158,6 +158,23 @@ public class LoanService
                 }
             }
         }
+        else if (reversed is not null && reversed.StartsWith("LND-", StringComparison.Ordinal))
+        {
+            // LND-<loanReference>: reversing a disbursement claws the money back,
+            // so the loan must return to its pre-disbursement Approved state —
+            // otherwise the customer still owes an active loan they never received.
+            var loanReference = reversed[4..];
+            var loan = await _db.Loans.SingleOrDefaultAsync(l => l.Reference == loanReference);
+            if (loan is not null && loan.Status == LoanStatus.Active)
+            {
+                loan.Status = LoanStatus.Approved;
+                loan.DisbursedAt = null;
+                loan.DisbursementTransactionId = null;
+                _audit.Write(adminId, "loan.disbursement_reversed", nameof(Loan),
+                    loan.Id.ToString(), new { reference = reversed }, ip);
+                await _db.SaveChangesAsync();
+            }
+        }
     }
 
     /// <summary>
