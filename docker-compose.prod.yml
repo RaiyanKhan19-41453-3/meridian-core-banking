@@ -6,6 +6,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       Seed__IncludeDemoData: "false"
+      Seed__AdminPassword: ${Seed__AdminPassword:?Set Seed__AdminPassword in .env}
       # Without this the EncryptionService singleton fails to resolve and every
       # KYC endpoint 500s in production.
       Security__EncryptionKey: ${Security__EncryptionKey:?Set Security__EncryptionKey in .env}

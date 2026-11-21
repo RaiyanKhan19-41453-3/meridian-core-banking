@@ -71,6 +71,12 @@ echo '=== 6. production compose passes the encryption key to the API ==='
 grep -q 'Security__EncryptionKey' /home/shoue/core-banking/docker-compose.prod.yml \
   && check 'prod overlay sets Security__EncryptionKey' ok ok \
   || check 'prod overlay sets Security__EncryptionKey' fail none
+grep -q 'Seed__AdminPassword' /home/shoue/core-banking/docker-compose.prod.yml \
+  && check 'prod overlay sets Seed__AdminPassword' ok ok \
+  || check 'prod overlay sets Seed__AdminPassword' fail none
+grep -q 'SeedEssentialAsync' /home/shoue/core-banking/src/CoreBanking.Api/Data/DbSeeder.cs \
+  && check 'essential bootstrap separated from demo seed' ok ok \
+  || check 'essential bootstrap separated from demo seed' fail none
 
 echo '=== 7. interrupted batch runs recover on startup ==='
 BRID=$(DB "insert into batch_runs (job_type, run_date, status, started_at, version, items_processed, items_failed) values ('DayEnd', '2020-01-15', 'Running', now(), 0, 0, 0) returning id" | head -1)

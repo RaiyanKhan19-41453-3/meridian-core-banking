@@ -156,15 +156,26 @@ if (!builder.Environment.IsDevelopment())
 
 var app = builder.Build();
 
-// --- Apply migrations; seed demo data (Development only) ---
+// --- Apply migrations; bootstrap essential rows always, demo rows only in dev ---
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+
+    var adminPassword = builder.Configuration["Seed:AdminPassword"]
+                        ?? DbSeeder.AdminPassword;
+    if (!app.Environment.IsDevelopment()
+        && string.Equals(adminPassword, DbSeeder.AdminPassword, StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "Refusing to start outside Development with the default administrator password. Set Seed__AdminPassword.");
+    }
+    await DbSeeder.SeedEssentialAsync(db, adminPassword);
+
     if (app.Environment.IsDevelopment() ||
         string.Equals(builder.Configuration["Seed:IncludeDemoData"], "true", StringComparison.OrdinalIgnoreCase))
     {
-        await DbSeeder.SeedAsync(db);
+        await DbSeeder.SeedDemoAsync(db);
     }
 
     // Reconcile stale batch runs — any unfinished job from a previous process

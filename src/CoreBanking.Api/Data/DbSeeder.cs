@@ -17,25 +17,19 @@ public static class DbSeeder
 
     private static readonly string[] Currencies = { "USD", "EUR", "GBP", "KES", "NGN", "BDT" };
 
-    public static async Task SeedAsync(AppDbContext db)
+    /// <summary>
+    /// Bootstrap rows required for the bank to function at all: the system
+    /// user that owns omnibus/clearing accounts, an administrator, and those
+    /// system accounts. Always runs, including in Production.
+    /// </summary>
+    public static async Task SeedEssentialAsync(AppDbContext db, string adminPassword)
     {
         var system = await UpsertUserAsync(db, SystemUserEmail, "System Omnibus",
             BCrypt.Net.BCrypt.HashPassword(Convert.ToHexString(Guid.NewGuid().ToByteArray())), // unusable password
             UserRole.Admin);
+        var admin = await UpsertUserAsync(db, AdminEmail, "Bank Administrator",
+            BCrypt.Net.BCrypt.HashPassword(adminPassword), UserRole.Admin);
 
-        await UpsertUserAsync(db, AdminEmail, "Bank Administrator",
-            BCrypt.Net.BCrypt.HashPassword(AdminPassword), UserRole.Admin);
-
-        var demo = await UpsertUserAsync(db, DemoEmail, "Demo Customer",
-            BCrypt.Net.BCrypt.HashPassword(DemoPassword), UserRole.Customer);
-
-        var admin = await db.Users.SingleAsync(u => u.Email == AdminEmail);
-
-        // Verified demo dossiers so the demo user passes the KYC gate
-        await UpsertProfileAsync(db, demo.Id, "Demo Customer",
-            new DateTime(1990, 1, 15, 0, 0, 0, DateTimeKind.Utc), "Kenya", "+254700000001",
-            "1 Meridian Plaza", "Nairobi", "Kenya", IdType.NationalId, "KE-12345678",
-            EmploymentStatus.Employed, "50k-100k", admin.Id);
         await UpsertProfileAsync(db, admin.Id, "Bank Administrator",
             new DateTime(1985, 6, 20, 0, 0, 0, DateTimeKind.Utc), "Kenya", "+254700000002",
             "2 Meridian Plaza", "Nairobi", "Kenya", IdType.NationalId, "KE-87654321",
@@ -50,11 +44,22 @@ public static class DbSeeder
             await EnsureAccountAsync(db, system.Id, $"SYS-{currency}-LOANCLR", AccountType.Current, currency, null);
             await EnsureAccountAsync(db, system.Id, $"SYS-{currency}-ODINT", AccountType.Current, currency, null);
         }
+    }
 
-        // Demo customer: one interest-bearing savings + one fee-bearing current account
+    /// <summary>Demo-only fixture data — skipped in Production.</summary>
+    public static async Task SeedDemoAsync(AppDbContext db)
+    {
+        var admin = await db.Users.SingleAsync(u => u.Email == AdminEmail);
+        var demo = await UpsertUserAsync(db, DemoEmail, "Demo Customer",
+            BCrypt.Net.BCrypt.HashPassword(DemoPassword), UserRole.Customer);
+
+        await UpsertProfileAsync(db, demo.Id, "Demo Customer",
+            new DateTime(1990, 1, 15, 0, 0, 0, DateTimeKind.Utc), "Kenya", "+254700000001",
+            "1 Meridian Plaza", "Nairobi", "Kenya", IdType.NationalId, "KE-12345678",
+            EmploymentStatus.Employed, "50k-100k", admin.Id);
+
         await EnsureAccountAsync(db, demo.Id, "AC100000000001", AccountType.Savings, "USD", "SAV-STD");
         await EnsureAccountAsync(db, demo.Id, "AC100000000002", AccountType.Current, "USD", "CUR-PER");
-        // Bangladesh pilot demo accounts — same catalogue, BDT products
         await EnsureAccountAsync(db, demo.Id, "AC100000000003", AccountType.Savings, "BDT", "SAV-BDT");
         await EnsureAccountAsync(db, demo.Id, "AC100000000004", AccountType.Current, "BDT", "CUR-BDT");
     }
