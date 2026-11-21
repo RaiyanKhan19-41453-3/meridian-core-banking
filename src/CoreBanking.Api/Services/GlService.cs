@@ -59,7 +59,26 @@ public class GlService
     {
         if (legs.Count < 2)
             throw new InvalidOperationException("A GL journal needs at least two legs.");
-        if (legs.Sum(l => l.Usd) != 0m)
+
+        // gl_entries.amount is numeric(19,4): PostgreSQL rounds each leg on
+        // storage with round-half-away-from-zero. Validating only the unrounded
+        // sum let FX-normalized 3-leg journals (e.g. a BDT loan repayment) slip
+        // through with a stored net of ±0.0001, breaking the zero-sum invariant.
+        // Round to the stored precision first, then push the residual into the
+        // largest leg so the STORED journal is exactly balanced.
+        var rounded = legs
+            .Select(l => (l.Code, Usd: Math.Round(l.Usd, 4, MidpointRounding.AwayFromZero)))
+            .ToList();
+        var residual = -rounded.Sum(l => l.Usd);
+        if (residual != 0m)
+        {
+            var largest = rounded
+                .Select((l, i) => (i, Abs: Math.Abs(l.Usd)))
+                .OrderByDescending(x => x.Abs)
+                .First().i;
+            rounded[largest] = (rounded[largest].Code, rounded[largest].Usd + residual);
+        }
+        if (rounded.Sum(l => l.Usd) != 0m)
             throw new InvalidOperationException("GL legs do not sum to zero. This is a bug.");
 
         var journal = new GlJournal
@@ -72,12 +91,12 @@ public class GlService
             CreatedAt = DateTime.UtcNow
         };
 
-        var codes = legs.Select(l => l.Code).ToList();
+        var codes = rounded.Select(l => l.Code).ToList();
         var accounts = await _db.GlAccounts
             .Where(g => codes.Contains(g.Code))
             .ToDictionaryAsync(g => g.Code);
 
-        foreach (var (code, usd) in legs)
+        foreach (var (code, usd) in rounded)
         {
             if (!accounts.TryGetValue(code, out var glAccount))
                 throw BankException.Conflict("gl_account_missing",
