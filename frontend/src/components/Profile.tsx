@@ -199,7 +199,7 @@ export default function Profile({ onStatusChanged }: { onStatusChanged: () => vo
 
       <section className="card kyc-docs-card">
         <h2 className="section-title">Documents</h2>
-        <p className="muted">PDF, JPEG or PNG · max 2 MB · stored encrypted at rest (bytea) and never public.</p>
+        <p className="muted">PDF, JPEG or PNG · max 2 MB · stored in the database (bytea) and never public. Download access is audited.</p>
 
         <div className="upload-row">
           <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={verified}>
