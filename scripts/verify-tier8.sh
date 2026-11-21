@@ -81,5 +81,15 @@ echo '=== 6. GL journal numbers are collision-resistant ==='
 BADNUM=$(DB "select count(*) from gl_journals where number !~ '^GLJ-[0-9]{8}-[0-9a-f]{12}\$'")
 check 'GL numbers use 12-hex suffix' 0 "$BADNUM"
 
+echo '=== 7. concurrent loan applications: one open loan per customer ==='
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/c8-l-$i.json -w '%{http_code}' -X POST $BASE/api/loans/apply \
+    -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-loan-$i" -H "$CT" \
+    -d "{\"loanProductCode\":\"PLN-PER\",\"principal\":5000,\"termMonths\":6,\"purpose\":\"race\",\"disbursementAccountId\":\"$SAV\"}" > /tmp/c8-l-$i.code &
+done
+wait
+OPEN=$(DB "select count(*) from loans l join users u on u.id=l.user_id where u.email='demo@bank.com' and l.status in ('Approved','Active')")
+check 'only one open loan after concurrent applies' 1 "$OPEN"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
