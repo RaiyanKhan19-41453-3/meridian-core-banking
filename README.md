@@ -183,6 +183,9 @@ Repeated attack-and-fix rounds closed these correctness gaps:
   the account row lock so a racing deposit cannot cause a spurious charge.
 - Pagination arithmetic uses 64-bit math with clamping, so an extreme `page` value
   can no longer overflow `Skip` and produce a negative OFFSET (HTTP 500).
+- GL journals are rounded to the stored 4dp precision before the zero-sum check,
+  with the residual pushed into the largest leg — FX-normalized 3-leg postings
+  (e.g. BDT loan repayments) can no longer be stored unbalanced by ±0.0001.
 
 ## Implementation roadmap
 
@@ -218,7 +221,7 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 212/212 green)**
+**Verification (all eight suites on isolated fresh volumes = 215/215 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 32 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -227,7 +230,7 @@ done
 | `verify-tier4.sh` | 27 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee on the batch business date, repayment reversal restores installment, admin portfolio) |
 | `verify-tier5.sh` | 29 — ODL-VAR (approve, draw, accrual, monthly charge, close, AML alert) |
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
-| `verify-tier7.sh` | 28 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
+| `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
 | `verify-tier8.sh` | 19 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
