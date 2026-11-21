@@ -432,6 +432,7 @@ public class BatchService
             if (await _db.Transactions.AnyAsync(t => t.Reference == reference)) continue;
 
             var fee = product.MonthlyFee;
+            var waived = false;
             var ok = await RunItemAsync(counters, $"fee:{account.AccountNumber}", async () =>
             {
                 var clearing = await EnsureClearingAccountAsync(account.Currency, "FEECLR");
@@ -439,6 +440,15 @@ public class BatchService
                 var byId = locked.ToDictionary(a => a.Id);
                 var customer = byId[account.Id];
                 var income = byId[clearing.Id];
+
+                // Re-check under the row lock: a deposit racing the fee run may
+                // have pushed the balance above the waiver threshold since the
+                // fast-path check above. Don't charge a customer who now qualifies.
+                if (customer.Balance >= product.FeeWaiverMinBalance)
+                {
+                    waived = true;
+                    return;
+                }
 
                 var tx = new Transaction
                 {
@@ -474,6 +484,7 @@ public class BatchService
                 await _db.SaveChangesAsync();
             });
 
+            if (waived) { counters.Processed++; continue; }
             if (ok) { counters.Processed++; count++; }
         }
 
