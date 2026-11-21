@@ -136,6 +136,16 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Fail fast in Production if secrets are still the committed dev defaults —
+// otherwise an attacker can forge admin JWTs with the publicly known key.
+const string DevJwtKey = "dev-only-insecure-key-change-me-in-production-0123456789abcdef";
+if (!builder.Environment.IsDevelopment()
+    && string.Equals(jwtKey, DevJwtKey, StringComparison.Ordinal))
+{
+    throw new InvalidOperationException(
+        "Refusing to start outside Development with the default JWT key. Set Jwt__Key to a long random value.");
+}
+
 var app = builder.Build();
 
 // --- Apply migrations; seed demo data (Development only) ---
