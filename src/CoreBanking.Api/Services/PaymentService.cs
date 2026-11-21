@@ -29,6 +29,8 @@ public class PaymentService
     {
         await KycGate.RequireVerifiedAsync(_db, userId);
         var number = req.AccountNumber.Trim().ToUpperInvariant();
+        if (number.StartsWith("SYS-", StringComparison.OrdinalIgnoreCase))
+            throw BankException.BadRequest("system_account", "System accounts cannot be saved as beneficiaries.");
         var exists = await _db.Accounts.AnyAsync(a => a.AccountNumber == number);
         if (!exists) throw BankException.NotFound("account_not_found", "Beneficiary account does not exist.");
         var nickname = req.Nickname.Trim();
@@ -96,6 +98,8 @@ public class PaymentService
             toNumber = req.ToAccountNumber?.Trim().ToUpperInvariant() ?? string.Empty;
         }
         if (toNumber.Length == 0) throw BankException.BadRequest("missing_destination", "Destination account number is required.");
+        if (toNumber.StartsWith("SYS-", StringComparison.OrdinalIgnoreCase))
+            throw BankException.BadRequest("system_account", "System accounts are settled only by bank processes.");
         if (toNumber == from.AccountNumber) throw BankException.BadRequest("same_account", "Source and destination are the same account.");
 
         var to = await _db.Accounts.AsNoTracking().SingleOrDefaultAsync(a => a.AccountNumber == toNumber);

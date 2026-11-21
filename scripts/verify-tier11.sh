@@ -27,6 +27,10 @@ DUP=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/benefici
 check 'duplicate nickname rejected' 409 "$DUP"
 BAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/beneficiaries -H "Authorization: Bearer $TOK" -H "$CT" -d '{"nickname":"Ghost","accountNumber":"AC999999999999"}')
 check 'unknown beneficiary account rejected' 404 "$BAD"
+BADSYS=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/beneficiaries -H "Authorization: Bearer $TOK" -H "$CT" -d '{"nickname":"System","accountNumber":"SYS-USD-OMNIBUS"}')
+check 'system account beneficiary rejected' 400 "$BADSYS"
+BADSCH=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/scheduled -H "Authorization: Bearer $TOK" -H "$CT" -d "{\"fromAccountId\":\"$SAV\",\"toAccountNumber\":\"SYS-USD-OMNIBUS\",\"amount\":1,\"frequency\":\"Once\",\"scheduledDate\":\"$TODAY\"}")
+check 'system account payment rejected' 400 "$BADSCH"
 for i in 1 2 3 4 5; do
   curl -s -o /tmp/t11-bf-$i.json -w '%{http_code}' -X POST $BASE/api/payments/beneficiaries -H "Authorization: Bearer $TOK" -H "$CT" -d '{"nickname":"Race Payee","accountNumber":"AC100000000002"}' > /tmp/t11-bf-$i.code &
 done
