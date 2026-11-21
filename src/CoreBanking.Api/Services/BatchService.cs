@@ -2,6 +2,7 @@ using System.Text.Json;
 using CoreBanking.Api.Data;
 using CoreBanking.Api.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Npgsql;
 
 namespace CoreBanking.Api.Services;
@@ -29,14 +30,17 @@ public class BatchService
     private readonly GlService _gl;
     private readonly AuditService _audit;
     private readonly LoanService _loans;
+    private readonly IConfiguration _config;
     private readonly ILogger<BatchService> _logger;
 
-    public BatchService(AppDbContext db, GlService gl, AuditService audit, LoanService loans, ILogger<BatchService> logger)
+    public BatchService(AppDbContext db, GlService gl, AuditService audit, LoanService loans,
+        IConfiguration config, ILogger<BatchService> logger)
     {
         _db = db;
         _gl = gl;
         _audit = audit;
         _loans = loans;
+        _config = config;
         _logger = logger;
     }
 
@@ -115,6 +119,26 @@ public class BatchService
                 var reviewed = await ReviewLimitsAsync(year, month, adminId, ip, counters);
                 return new { limitsReviewed = reviewed };
             }, adminId, ip);
+
+    public async Task<BatchResult> RunRetentionAsync(DateTime asOf, Guid? adminId, string? ip)
+        => await RunGuardedAsync(BatchJobType.Retention, asOf.Date, async (run, counters) =>
+        {
+            var auditDays = _config.GetValue("Retention:AuditDays", 2555);
+            var alertDays = _config.GetValue("Retention:AmlAlertDays", 2555);
+            var auditBefore = DateTime.UtcNow.AddDays(-auditDays);
+            var alertBefore = DateTime.UtcNow.AddDays(-alertDays);
+
+            var audits = await _db.AuditLogs.Where(a => a.CreatedAt < auditBefore).ExecuteDeleteAsync();
+            // Filed alerts are part of a regulatory record and are never purged.
+            var alerts = await _db.AmlAlerts
+                .Where(a => a.CreatedAt < alertBefore && a.FiledAt == null
+                            && a.Status != AmlAlertStatus.Open)
+                .ExecuteDeleteAsync();
+
+            _audit.Write(adminId, "retention.purged", nameof(BatchRun), run.Id.ToString(),
+                new { auditDays, alertDays, audits, alerts }, ip);
+            return new { auditRowsDeleted = audits, alertRowsDeleted = alerts };
+        }, adminId, ip);
 
     public async Task<List<BatchRun>> RecentRunsAsync(int count = 20) =>
         await _db.BatchRuns.AsNoTracking()

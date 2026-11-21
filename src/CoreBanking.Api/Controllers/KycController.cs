@@ -29,12 +29,14 @@ public class KycController : ControllerBase
     private readonly AppDbContext _db;
     private readonly AmlService _aml;
     private readonly AuditService _audit;
+    private readonly EncryptionService _encryption;
 
-    public KycController(AppDbContext db, AmlService aml, AuditService audit)
+    public KycController(AppDbContext db, AmlService aml, AuditService audit, EncryptionService encryption)
     {
         _db = db;
         _aml = aml;
         _audit = audit;
+        _encryption = encryption;
     }
 
     private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
@@ -157,7 +159,7 @@ public class KycController : ControllerBase
             FileName = Path.GetFileName(file.FileName),
             ContentType = file.ContentType,
             SizeBytes = bytes.LongLength,
-            Content = bytes,
+            Content = _encryption.Encrypt(bytes),
             Sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
             UploadedAt = DateTime.UtcNow,
             UploadedBy = userId.Value
@@ -204,7 +206,7 @@ public class KycController : ControllerBase
         await _db.SaveChangesAsync();
 
         Response.Headers["X-Content-Type-Options"] = "nosniff";
-        return File(doc.Content, doc.ContentType, doc.FileName);
+        return File(_encryption.Decrypt(doc.Content), doc.ContentType, doc.FileName);
     }
 
     /// <summary>Delete a document you own (only while your profile is not Verified).</summary>

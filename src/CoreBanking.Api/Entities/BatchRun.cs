@@ -8,7 +8,8 @@ public enum BatchJobType
     Repayment,
     OverdraftAccrual,
     OverdraftCharge,
-    LimitReview
+    LimitReview,
+    Retention
 }
 
 public enum BatchRunStatus

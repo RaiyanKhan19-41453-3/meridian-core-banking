@@ -219,7 +219,7 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 12. ✅ Overdraft variants — ODL-TD (term-deposit-backed, 9% p.a., 90% LTV), tiered fee waivers, monthly automatic limit review, penalty-rate late fees
 13. ✅ Payments — beneficiary registry, one-off/recurring scheduling, idempotent sandbox rail (real ACH/SEPA requires a regulated partner)
 14. ✅ Compliance reporting — CTR/SAR candidate lists, filing tracker, tax statements, subledger-vs-GL reconciliation, audited sanctions-list refresh
-15. 🔲 Production readiness — secret manager, TLS, backups, column-level PII encryption, retention policy, Testcontainers suite, CI (dependency scanning, migrations check), observability
+15. ✅ Production readiness — correlation IDs, liveness/readiness, metrics (JSON + Prometheus), data-retention job, AES-256-GCM document encryption, pg_dump backups, CI workflow, TLS/secret templates
 
 ## Development
 
@@ -228,16 +228,39 @@ docker compose up -d --build          # rebuild everything
 docker compose logs -f api            # follow API logs
 docker compose down -v                # wipe ALL data (fresh seed)
 
-# Eleven E2E verification suites. EACH needs its own FRESH volume — they assert
+# Twelve E2E verification suites. EACH needs its own FRESH volume — they assert
 # exact balances/counts and give misleading failures on a dirty database.
-for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6 verify-tier7 verify-tier8 verify-tier9 verify-tier10 verify-tier11; do
+for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6 verify-tier7 verify-tier8 verify-tier9 verify-tier10 verify-tier11 verify-tier12; do
   docker compose down -v && docker compose up -d --build
   # wait for /health → 200, then:
   /home/shoue/core-banking/scripts/$f.sh
 done
 ```
 
-**Verification (all eleven suites on isolated fresh volumes = 279/279 green)**
+### Production operations
+
+- **Secrets**: copy `.env.example` to `.env` and replace every placeholder
+  (`openssl rand -base64 64` for `JWT_KEY`, `openssl rand -base64 48` for
+  `Security__EncryptionKey`). `.env`, `certs/` and `backups/` are gitignored.
+  The API refuses to start outside Development with the committed dev keys.
+- **TLS**: place certificates in `./certs/fullchain.pem` and `privkey.pem`,
+  then run `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`.
+  The production overlay disables demo seeding, strictens rate limits, stops
+  exposing Postgres publicly, and terminates TLS at nginx.
+- **Backups**: `scripts/backup.sh [label]` writes a compressed `pg_dump` into
+  `./backups` and removes files older than `BACKUP_KEEP_DAYS` (default 30).
+- **Retention**: `POST /api/admin/batch/retention` purges audit rows and
+  settled, un-filed AML alerts older than `Retention:AuditDays` /
+  `Retention:AmlAlertDays` (defaults 2555 days). Filed alerts are never purged.
+- **Observability**: every response carries `X-Correlation-Id`; logs include it.
+  `GET /health/live` and `/health/ready` are separate probes. Admin-only
+  `GET /api/metrics` (JSON) and `/api/metrics/prometheus` expose counters.
+- **PII at rest**: KYC document bytes are AES-256-GCM encrypted before storage
+  (`ENC1` framing); legacy plaintext remains readable.
+- **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
+  migrations, scans dependencies and runs all suites with fresh volumes.
+
+**Verification (all twelve suites on isolated fresh volumes = 297/297 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -251,6 +274,7 @@ done
 | `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
 | `verify-tier10.sh` | 15 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
 | `verify-tier11.sh` | 18 — roadmap item 13: beneficiaries, scheduled payments, idempotent sandbox rail |
+| `verify-tier12.sh` | 18 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).

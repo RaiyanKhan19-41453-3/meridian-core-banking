@@ -186,6 +186,13 @@ public class AdminController : ControllerBase
         return Ok(ToDto(result.Run, result.Replayed));
     }
 
+    [HttpPost("batch/retention")]
+    public async Task<IActionResult> Retention([FromBody] DayEndRequest req)
+    {
+        var result = await _batch.RunRetentionAsync(req.Date ?? DateTime.UtcNow.Date, AdminId(), ClientIp);
+        return Ok(ToDto(result.Run, result.Replayed));
+    }
+
     [HttpPost("batch/execute-scheduled-payments")]
     public async Task<IActionResult> ExecuteScheduledPayments([FromBody] DayEndRequest req)
     {

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore & build
+        run: dotnet build src/CoreBanking.Api/CoreBanking.Api.csproj -c Release
+      - name: Install EF tool
+        run: dotnet tool install --global dotnet-ef --version 10.*
+      - name: Migrations check (no pending model changes)
+        run: |
+          cd src/CoreBanking.Api
+          dotnet ef migrations has-pending-model-changes --no-build --configuration Release
+      - name: Dependency vulnerability scan
+        run: dotnet list src/CoreBanking.Api/CoreBanking.Api.csproj package --vulnerable --include-transitive
+        continue-on-error: true
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Dependency vulnerability scan
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [build-api, build-frontend]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up -d --build
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/health || true)
+            [ "$code" = "200" ] && exit 0
+            sleep 2
+          done
+          docker compose logs api
+          exit 1
+      - name: Run verification suites (fresh volume each)
+        run: |
+          for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 \
+                   verify-tier6 verify-tier7 verify-tier8 verify-tier9 \
+                   verify-tier10 verify-tier11; do
+            echo "=== $f ==="
+            docker compose down -v
+            docker compose up -d --build
+            for i in $(seq 1 90); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8090/health || true)
+              [ "$code" = "200" ] && break
+              sleep 2
+            done
+            bash scripts/$f.sh
+          done
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail=200

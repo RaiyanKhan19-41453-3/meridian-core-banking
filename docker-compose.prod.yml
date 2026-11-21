@@ -1,0 +1,31 @@
+# Production overlay. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Requires a real .env with generated secrets and ./certs/{fullchain,privkey}.pem.
+services:
+  api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Seed__IncludeDemoData: "false"
+      RateLimiting__AuthPermitLimit: ${RateLimiting__AuthPermitLimit:-10}
+      RateLimiting__MoneyPermitLimit: ${RateLimiting__MoneyPermitLimit:-30}
+      RateLimiting__WindowMinutes: ${RateLimiting__WindowMinutes:-1}
+      Retention__AuditDays: ${Retention__AuditDays:-2555}
+      Retention__AmlAlertDays: ${Retention__AmlAlertDays:-2555}
+      Cors__Origins__0: https://${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
+      Cors__Origins__1: about:blank
+    ports: []
+
+  postgres:
+    ports: [] # never expose the database publicly in production
+
+  frontend:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${TLS_CERT_PATH:?set TLS_CERT_PATH}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_KEY_PATH:?set TLS_KEY_PATH}:/etc/nginx/tls/privkey.pem:ro
+      - ./frontend/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+
+  pgadmin:
+    ports: [] # use a secure tunnel if DB admin access is needed

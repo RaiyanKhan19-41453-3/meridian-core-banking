@@ -54,6 +54,8 @@ builder.Services.AddScoped<BatchService>();
 builder.Services.AddScoped<AmlService>();
 builder.Services.AddScoped<ComplianceService>();
 builder.Services.AddScoped<PaymentService>();
+builder.Services.AddSingleton<MetricsRegistry>();
+builder.Services.AddSingleton<EncryptionService>();
 
 // --- ProblemDetails for every unhandled exception ---
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -141,11 +143,15 @@ builder.Services.AddSwaggerGen(c =>
 // Fail fast in Production if secrets are still the committed dev defaults —
 // otherwise an attacker can forge admin JWTs with the publicly known key.
 const string DevJwtKey = "dev-only-insecure-key-change-me-in-production-0123456789abcdef";
-if (!builder.Environment.IsDevelopment()
-    && string.Equals(jwtKey, DevJwtKey, StringComparison.Ordinal))
+const string DevEncryptionKey = "dev-only-insecure-document-key-change-me-0123456789abcdef";
+if (!builder.Environment.IsDevelopment())
 {
-    throw new InvalidOperationException(
-        "Refusing to start outside Development with the default JWT key. Set Jwt__Key to a long random value.");
+    if (string.Equals(jwtKey, DevJwtKey, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            "Refusing to start outside Development with the default JWT key. Set Jwt__Key to a long random value.");
+    if (string.Equals(builder.Configuration["Security:EncryptionKey"], DevEncryptionKey, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            "Refusing to start outside Development with the default document encryption key. Set Security__EncryptionKey.");
 }
 
 var app = builder.Build();
@@ -187,6 +193,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseExceptionHandler();
+app.UseMiddleware<RequestObservabilityMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -206,6 +213,18 @@ app.MapGet("/health", async (AppDbContext db) =>
     var canConnect = await db.Database.CanConnectAsync();
     return canConnect
         ? Results.Ok(new { status = "healthy", database = "up" })
+        : Results.Problem("database unreachable", statusCode: 503);
+});
+
+// Liveness: process is up. Readiness: database reachable. These are distinct
+// so an orchestrator can restart a hung process without taking a healthy DB
+// out of rotation during a brief network blip.
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
+app.MapGet("/health/ready", async (AppDbContext db) =>
+{
+    var canConnect = await db.Database.CanConnectAsync();
+    return canConnect
+        ? Results.Ok(new { status = "ready", database = "up" })
         : Results.Problem("database unreachable", statusCode: 503);
 });
 
