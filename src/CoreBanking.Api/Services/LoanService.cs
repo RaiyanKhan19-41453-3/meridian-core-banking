@@ -311,6 +311,8 @@ public class LoanService
             _db.Transactions.Add(feeTx);
             _db.LedgerEntries.AddRange(feeEntries);
             await _gl.AttachAsync(feeTx, feeEntries, feeById, feeCustomer.Currency);
+            _audit.Write(callerId, "money.fee", nameof(Transaction), feeTx.Id.ToString(),
+                new { reference = feeRef, amount = loan.OriginationFee, loan = loan.Reference }, ip);
             feeCustomer.Balance -= loan.OriginationFee; feeCustomer.Version += 1;
             feeSweep.Balance += loan.OriginationFee; feeSweep.Version += 1;
             customer = feeCustomer; // reflect fee in disbursement response balance
