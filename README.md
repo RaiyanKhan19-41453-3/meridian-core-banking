@@ -216,7 +216,7 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 9. ✅ Overdraft & revolving credit — ODL-VAR facility, utilization-aware balance check, daily accrual + monthly charge, forced ops jobs, admin portfolio
 10. ✅ Secured overdraft — ODL-SEC against pledged savings (12% p.a., 90% LTV), collateral lock, same decision/journaling/close engines
 11. ✅ Loan late-payment fee — $25 flat per failed installment per calendar month, deterministic reference, audited; hits statement & GL like any other fee
-12. 🔲 Overdraft variants: term-deposit-backed OD, fee waiver tiers, automatic limit review; penalty rates on overdue loans
+12. ✅ Overdraft variants — ODL-TD (term-deposit-backed, 9% p.a., 90% LTV), tiered fee waivers, monthly automatic limit review, penalty-rate late fees
 13. 🔲 Payments: beneficiaries, scheduling, sandbox rail → then one real rail (ACH/SEPA Instant) — a regulatory project
 14. 🔲 Compliance reporting (CTR/SAR filing), tax statements; sanctions-list refresh automation; nostro/vostro reconciliation
 15. 🔲 Production readiness — secret manager, TLS, backups, column-level PII encryption, retention policy, Testcontainers suite, CI (dependency scanning, migrations check), observability
@@ -228,16 +228,16 @@ docker compose up -d --build          # rebuild everything
 docker compose logs -f api            # follow API logs
 docker compose down -v                # wipe ALL data (fresh seed)
 
-# Eight E2E verification suites. EACH needs its own FRESH volume — they assert
+# Nine E2E verification suites. EACH needs its own FRESH volume — they assert
 # exact balances/counts and give misleading failures on a dirty database.
-for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6 verify-tier7 verify-tier8; do
+for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6 verify-tier7 verify-tier8 verify-tier9; do
   docker compose down -v && docker compose up -d --build
   # wait for /health → 200, then:
   /home/shoue/core-banking/scripts/$f.sh
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 233/233 green)**
+**Verification (all nine suites on isolated fresh volumes = 246/246 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -248,6 +248,7 @@ done
 | `verify-tier6.sh` | 25 — ODL-SEC (pledge, collateral lock, close releases) + late fee posting, GL balanced |
 | `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
 | `verify-tier8.sh` | 32 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
+| `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
 
 **Always wipe the volume between suites.** Re-running a suite against a dirty
 database produces misleading failures (duplicate accruals, stale balances).
