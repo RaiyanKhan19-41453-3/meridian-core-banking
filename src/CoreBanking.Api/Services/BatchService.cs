@@ -248,6 +248,12 @@ public class BatchService
             var facility = await _db.OverdraftFacilities
                 .Include(f => f.Account)
                 .SingleAsync(f => f.Id == group.FacilityId);
+            // Never post a debit to a facility that has been closed or to an
+            // account that is frozen/closed. Closing an account requires a zero
+            // balance, so a later charge would otherwise re-open a debt on it.
+            if (facility.Status != OverdraftStatus.Active
+                || facility.Account.Status != AccountStatus.Active)
+                continue;
             var reference = $"ODINT-{facility.Reference}-{period}";
 
             // deterministic reference → reruns never double-charge
