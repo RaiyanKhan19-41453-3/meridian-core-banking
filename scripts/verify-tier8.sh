@@ -182,5 +182,10 @@ CAPDONE=$(DB "select count(*) from interest_accruals where account_id='$CAPACC' 
 check 'closed account not capitalized' 0 "$CAPDONE"
 check 'closed account balance still zero' 0.0000 "$(DB "select balance from accounts where id='$CAPACC'")"
 
+echo '=== 15. CSV export neutralizes spreadsheet formula prefixes ==='
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-csv" -H "$CT" -d "{\"accountId\":\"$SAV\",\"amount\":1,\"description\":\"=SUM(A1:A2)\"}"
+CSVOUT=$(curl -s "$BASE/api/accounts/$SAV/statement?format=csv" -H "Authorization: Bearer $TOK")
+check 'CSV prefixes formula cell with apostrophe' true "$(echo "$CSVOUT" | grep -q "'=SUM(A1:A2)" && echo true)"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
