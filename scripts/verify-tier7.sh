@@ -108,6 +108,26 @@ check 'ODL-VAR-BDT CIB-blended approved' Active "$(echo "$OD_VAR" | j "['status'
 check 'ODL-VAR-BDT rate 22% p.a.' 22.0 "$(echo "$OD_VAR" | j "['annualInterestRate']")"
 check 'CIB provenance retained' 820 "$(echo "$OD_VAR" | j "['cibScore']")"
 
+echo '=== 10. FX GL rounding: 3-leg BDT repayment must stay balanced after 4dp storage ==='
+# This specific schedule (51,000 BDT / 11 months) produced USD legs whose
+# independent 4dp rounding summed to ±0.0001 before the fix.
+U9="bdt9_${RUN_ID}@example.com"
+curl -s -X POST $BASE/api/auth/register -H "$CT" -d "{\"email\":\"$U9\",\"password\":\"Pass1234!\",\"fullName\":\"BDT Rounding ${RUN_ID}\"}" > /dev/null
+TOK9=$(curl -s -X POST $BASE/api/auth/login -H "$CT" -d "{\"email\":\"$U9\",\"password\":\"Pass1234!\"}" | j "['accessToken']")
+U9_UID=$(curl -s "$BASE/api/admin/kyc/pending?pageSize=100" -H "Authorization: Bearer $TOK_A" | python3 -c "import sys,json; print([p['userId'] for p in json.load(sys.stdin)['items'] if p['email']=='$U9'][0])")
+curl -s -X PUT $BASE/api/kyc/profile -H "Authorization: Bearer $TOK9" -H "$CT" -d '{"fullLegalName":"BDT Rounding Demo","dateOfBirth":"1988-02-02","nationality":"Bangladesh","phone":"+8801712345679","addressLine":"Mirpur 1","city":"Dhaka","country":"Bangladesh","idType":"NationalId","idNumber":"BD-9876543210","employmentStatus":"Employed","annualIncomeBand":"50k-100k"}' > /dev/null
+code=$(code_of -X POST $BASE/api/admin/kyc/$U9_UID/approve -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{}')
+check 'rounding user approved' 204 "$code"
+C9=$(curl -s -X POST $BASE/api/accounts -H "Authorization: Bearer $TOK9" -H "$CT" -d '{"type":"Current","currency":"BDT"}' | j "['id']")
+L9=$(curl -s -X POST $BASE/api/loans/apply -H "Authorization: Bearer $TOK9" -H "$CT" -d "{\"loanProductCode\":\"PLN-BDT\",\"principal\":51000,\"termMonths\":11,\"purpose\":\"gl rounding\",\"disbursementAccountId\":\"$C9\",\"cibScore\":820}" | j "['loan']['summary']['id']")
+code=$(code_of -X POST $BASE/api/loans/$L9/accept-and-disburse -H "Authorization: Bearer $TOK9" -H "$CT" -d '{}')
+check 'rounding loan disbursed' 200 "$code"
+DB "update loan_installments set due_date=current_date-1 where loan_id='$L9' and installment_no in (1,2)" > /dev/null
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK9" -H "Idempotency-Key: ${RUN_ID}t7-round-fund" -H "$CT" -d "{\"accountId\":\"$C9\",\"amount\":500000,\"description\":\"fund\"}"
+curl -s -o /dev/null -X POST $BASE/api/admin/batch/process-repayments -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"date":"'$(date -u +%F)'"}'
+UNBALANCED=$(DB "select count(*) from (select journal_id from gl_entries group by journal_id having sum(amount) <> 0) t")
+check 'all GL journals balanced after BDT repayment' 0 "$UNBALANCED"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
 exit $fail
