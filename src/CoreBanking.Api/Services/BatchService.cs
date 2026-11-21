@@ -508,16 +508,25 @@ public class BatchService
         BatchRun run;
         if (existing is not null)
         {
-            // Re-run the interrupted slot instead of returning it forever.
-            run = await _db.BatchRuns.SingleAsync(b => b.Id == existing.Id);
-            run.Status = BatchRunStatus.Partial;
-            run.StartedAt = DateTime.UtcNow;
-            run.FinishedAt = null;
-            run.ItemsProcessed = 0;
-            run.ItemsFailed = 0;
-            run.Errors = null;
-            run.Summary = null;
-            await _db.SaveChangesAsync();
+            // ATOMIC claim of an interrupted slot: only the caller whose conditional
+            // UPDATE succeeds owns this re-run. Others get the stored result as a
+            // replay instead of executing the posting body concurrently.
+            var claimed = await _db.BatchRuns
+                .Where(b => b.Id == existing.Id && b.Version == existing.Version
+                            && b.Status != BatchRunStatus.Succeeded)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(b => b.Status, BatchRunStatus.Partial)
+                    .SetProperty(b => b.Version, existing.Version + 1)
+                    .SetProperty(b => b.StartedAt, DateTime.UtcNow)
+                    .SetProperty(b => b.FinishedAt, (DateTime?)null)
+                    .SetProperty(b => b.ItemsProcessed, 0)
+                    .SetProperty(b => b.ItemsFailed, 0)
+                    .SetProperty(b => b.Errors, (string?)null)
+                    .SetProperty(b => b.Summary, (string?)null));
+            if (claimed != 1)
+                return new BatchResult(existing, Replayed: true);
+
+            run = await _db.BatchRuns.AsNoTracking().SingleAsync(b => b.Id == existing.Id);
         }
         else
         {

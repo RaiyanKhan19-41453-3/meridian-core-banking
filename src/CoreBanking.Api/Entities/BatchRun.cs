@@ -35,4 +35,7 @@ public class BatchRun
 
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? FinishedAt { get; set; }
+
+    /// <summary>Optimistic concurrency token — an atomic claim decides which caller owns a re-run.</summary>
+    public int Version { get; set; }
 }

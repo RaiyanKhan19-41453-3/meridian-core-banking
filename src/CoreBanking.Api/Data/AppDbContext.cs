@@ -131,6 +131,7 @@ public class AppDbContext : DbContext
             e.Property(b => b.JobType).HasConversion<string>().HasMaxLength(20);
             e.Property(b => b.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(b => b.RunDate).HasColumnType("date");
+            e.Property(b => b.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<CustomerProfile>(e =>

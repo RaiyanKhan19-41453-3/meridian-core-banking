@@ -264,6 +264,11 @@ namespace CoreBanking.Api.Migrations
                         .HasColumnType("text")
                         .HasColumnName("summary");
 
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
                     b.HasKey("Id")
                         .HasName("pk_batch_runs");
 
