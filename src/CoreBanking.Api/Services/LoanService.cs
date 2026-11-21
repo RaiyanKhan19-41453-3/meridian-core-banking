@@ -53,6 +53,14 @@ public class LoanService
         if (account.Currency != product.Currency)
             throw BankException.Unprocessable("currency_mismatch", $"This product is denominated in {product.Currency}.");
 
+        // The one-open-loan check and the insert must be atomic. Without the
+        // per-user advisory lock, concurrent applications all see "no open loan"
+        // and create several live loans for the same customer. The lock is
+        // transaction-scoped and is released on commit or rollback.
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        await _db.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(hashtext({0}), 0)", userId.ToString());
+
         var hasOpenLoan = await _db.Loans.AnyAsync(l =>
             l.UserId == userId && (l.Status == LoanStatus.Approved || l.Status == LoanStatus.Active));
         if (hasOpenLoan)
@@ -112,6 +120,7 @@ public class LoanService
         _audit.Write(userId, approved ? "loan.approved" : "loan.rejected", nameof(Loan), loan.Id.ToString(),
             new { loan.Reference, product = product.Code, req.Principal, req.TermMonths, score, cibScore, source }, ip);
         await _db.SaveChangesAsync();
+        await tx.CommitAsync();
         return loan;
     }
 
