@@ -190,6 +190,15 @@ using (var scope = app.Services.CreateScope())
     var restored = await loans.ReconcileReversedRepaymentsAsync();
     if (restored > 0)
         app.Logger.LogWarning("Restored {Count} installment(s) after reversed repayments", restored);
+
+    // A payment claimed into Processing by a process that crashed is safe to
+    // retry — its idempotency key prevents a double posting.
+    var stuckPayments = await db.ScheduledPayments
+        .Where(s => s.Status == CoreBanking.Api.Entities.ScheduledPaymentStatus.Processing)
+        .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status,
+            CoreBanking.Api.Entities.ScheduledPaymentStatus.Pending));
+    if (stuckPayments > 0)
+        app.Logger.LogWarning("Reset {Count} interrupted scheduled payment(s) to Pending", stuckPayments);
 }
 
 app.UseExceptionHandler();

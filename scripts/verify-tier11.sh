@@ -68,6 +68,11 @@ check 'recurring payment stays Pending' Pending "$ST2"
 echo '=== 5. cancel a pending payment ==='
 CAN=$(curl -s -X POST $BASE/api/payments/scheduled -H "Authorization: Bearer $TOK" -H "$CT" -d "{\"fromAccountId\":\"$SAV\",\"toAccountNumber\":\"AC100000000002\",\"amount\":25,\"frequency\":\"Once\",\"scheduledDate\":\"$(date -u -d '+2 days' +%F)\"}")
 CID=$(echo "$CAN" | j "['id']")
+# A future-dated run must not pull the payment forward.
+FUT=$(( $(date -u +%s) + 172800 ))
+FUTDAY=$(date -u -d @$FUT +%F)
+FUTRES=$(curl -s -X POST $BASE/api/admin/batch/execute-scheduled-payments -H "Authorization: Bearer $ADM" -H "$CT" -d "{\"date\":\"$FUTDAY\"}")
+check 'future-dated run cannot execute early' 0 "$(echo "$FUTRES" | python3 -c "import sys,json; print(json.load(sys.stdin)['executed'])")"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/payments/scheduled/$CID/cancel -H "Authorization: Bearer $TOK")
 check 'cancel returns 204' 204 "$code"
 ST3=$(curl -s $BASE/api/payments/scheduled -H "Authorization: Bearer $TOK" | python3 -c "import sys,json; print([p['status'] for p in json.load(sys.stdin) if p['id']=='$CID'][0])")

@@ -199,8 +199,12 @@ public class AdminController : ControllerBase
         // Not a guarded batch: a payment scheduled after today's run must still
         // be executable. Each execution uses a deterministic idempotency key,
         // so repeated calls never double-post.
-        var executed = await _payments.ExecuteDueAsync(req.Date ?? DateTime.UtcNow.Date, ClientIp);
-        return Ok(new { executed, date = (req.Date ?? DateTime.UtcNow.Date).Date });
+        var date = (req.Date ?? DateTime.UtcNow.Date).Date;
+        // Never execute a customer's payment ahead of its scheduled date —
+        // catch-up runs for past dates are allowed, future ones are not.
+        date = date > DateTime.UtcNow.Date ? DateTime.UtcNow.Date : date;
+        var executed = await _payments.ExecuteDueAsync(date, ClientIp);
+        return Ok(new { executed, date });
     }
 
     [HttpPost("batch/accrue-overdraft-interest")]
