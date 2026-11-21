@@ -103,5 +103,20 @@ check 'all concurrent disburses return 200' 5 "$OK"
 DISB=$(DB "select count(*) from transactions where type='LoanDisbursement'")
 check 'exactly one disbursement posted' 1 "$DISB"
 
+echo '=== 9. concurrent overdraft applications ==='
+CURACC=$(DB "select id from accounts where account_number='AC100000000002'")
+for i in 1 2 3 4 5; do
+  curl -s -o /tmp/c8-o-$i.json -w '%{http_code}' -X POST $BASE/api/overdraft/apply \
+    -H "Authorization: Bearer $TOK" -H "$CT" \
+    -d "{\"productCode\":\"ODL-VAR\",\"accountId\":\"$CURACC\",\"requestedLimit\":5000,\"purpose\":\"race\"}" > /tmp/c8-o-$i.code &
+done
+wait
+OK=$(grep -l '^201$' /tmp/c8-o-*.code | wc -l)
+CONF=$(grep -l 'facility_exists' /tmp/c8-o-*.json | wc -l)
+check 'one overdraft application succeeds' 1 "$OK"
+check 'four get clean facility_exists conflict' 4 "$CONF"
+FAC=$(DB "select count(*) from overdraft_facilities where account_id='$CURACC'")
+check 'exactly one facility created' 1 "$FAC"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
