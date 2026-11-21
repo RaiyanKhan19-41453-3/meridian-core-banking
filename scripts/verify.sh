@@ -50,6 +50,12 @@ echo '=== 5. same key, different payload → 409 ==='
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $AT" -H "Idempotency-Key: ${RUN_ID}dep-verify-1" -H "$CT" -d "{\"accountId\":\"$ACC_ID\",\"amount\":999,\"description\":\"different\"}")
 check 'mismatched replay rejected' 409 "$code"
 
+echo '=== 5b. same key + identical-shaped payload on a DIFFERENT endpoint → 409 ==='
+# DepositRequest and WithdrawRequest have identical properties; the fingerprint
+# must include the type or a withdrawal could replay a deposit and move no money.
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/transactions/withdraw -H "Authorization: Bearer $AT" -H "Idempotency-Key: ${RUN_ID}dep-verify-1" -H "$CT" -d "{\"accountId\":\"$ACC_ID\",\"amount\":1000,\"description\":\"test deposit\"}")
+check 'cross-endpoint key reuse rejected' 409 "$code"
+
 echo '=== 6. missing Idempotency-Key → 400 ==='
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $AT" -H "$CT" -d "{\"accountId\":\"$ACC_ID\",\"amount\":5}")
 check 'missing key rejected' 400 "$code"
