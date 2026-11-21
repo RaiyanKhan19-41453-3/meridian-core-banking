@@ -135,5 +135,22 @@ check 'omnibus freeze rejected' 422 "$code"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $BASE/api/admin/accounts/$SYSACC/close -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{"reason":"test"}')
 check 'omnibus close rejected' 422 "$code"
 
+echo '=== 12. closed overdraft facilities are not charged after close ==='
+FAC_ID=$(DB "select id from overdraft_facilities where account_id='$CURACC'")
+ACC_BAL=$(DB "select balance from accounts where id='$CURACC'")
+DRAW=$(python3 -c "print(round(float('$ACC_BAL') + 500, 4))")
+curl -s -o /dev/null -X POST $BASE/api/transactions/withdraw -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-od-draw" -H "$CT" -d "{\"accountId\":\"$CURACC\",\"amount\":$DRAW,\"description\":\"draw\"}"
+curl -s -o /dev/null -X POST $BASE/api/admin/batch/accrue-overdraft-interest -H "Authorization: Bearer $TOK_A" -H "$CT" -d '{}'
+ACCR=$(DB "select count(*) from overdraft_accruals where facility_id='$FAC_ID' and not charged")
+python3 -c "import sys; sys.exit(0 if int('$ACCR')>=1 else 1)" && check 'accrual exists before close' ok ok || check 'accrual exists before close' fail ok
+curl -s -o /dev/null -X POST $BASE/api/transactions/deposit -H "Authorization: Bearer $TOK" -H "Idempotency-Key: ${RUN_ID}c8-od-refill" -H "$CT" -d "{\"accountId\":\"$CURACC\",\"amount\":$DRAW,\"description\":\"refill\"}"
+curl -s -o /dev/null -X POST $BASE/api/overdraft/$FAC_ID/close -H "Authorization: Bearer $TOK" -H "$CT" -d '{"reason":"test"}'
+BAL_BEFORE=$(DB "select balance from accounts where id='$CURACC'")
+Y=$(date -u +%Y); M=$(date -u +%-m)
+CHG=$(curl -s -X POST $BASE/api/admin/batch/charge-overdraft-interest -H "Authorization: Bearer $TOK_A" -H "$CT" -d "{\"year\":$Y,\"month\":$M}")
+check 'closed facility not charged' 0 "$(echo "$CHG" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['charged'])")"
+BAL_AFTER=$(DB "select balance from accounts where id='$CURACC'")
+check 'balance unchanged after post-close charge run' "$BAL_BEFORE" "$BAL_AFTER"
+
 echo
 echo "RESULT: $pass passed, $fail failed"
