@@ -85,10 +85,12 @@ public class ComplianceService
     public async Task<IReadOnlyList<TaxStatementDto>> TaxStatementsAsync(Guid? userId, int year)
     {
         var yearStart = DateTime.SpecifyKind(new DateTime(year, 1, 1), DateTimeKind.Utc);
-        var yearEnd = DateTime.SpecifyKind(new DateTime(year, 12, 31), DateTimeKind.Utc);
+        // Exclusive upper bound: a <= Dec-31-00:00 check silently excluded every
+        // transaction posted later on the last day of the year.
+        var yearEndExclusive = DateTime.SpecifyKind(new DateTime(year, 12, 31).AddDays(1), DateTimeKind.Utc);
 
         var accountQuery = _db.Accounts.AsNoTracking()
-            .Where(a => a.UserId != null && !a.AccountNumber.StartsWith("SYS-"));
+            .Where(a => !a.AccountNumber.StartsWith("SYS-"));
         if (userId.HasValue) accountQuery = accountQuery.Where(a => a.UserId == userId.Value);
         var accounts = await accountQuery.ToListAsync();
         if (accounts.Count == 0) return Array.Empty<TaxStatementDto>();
@@ -96,13 +98,13 @@ public class ComplianceService
         var ids = accountById.Keys.ToList();
 
         var txns = await _db.Transactions.AsNoTracking()
-            .Where(t => t.CreatedAt >= yearStart && t.CreatedAt <= yearEnd)
+            .Where(t => t.CreatedAt >= yearStart && t.CreatedAt < yearEndExclusive)
             .Select(t => new { t.Id, t.Type, t.Description })
             .ToListAsync();
         var txById = txns.ToDictionary(t => t.Id);
 
         var legs = await _db.LedgerEntries.AsNoTracking()
-            .Where(e => ids.Contains(e.AccountId) && e.PostedAt >= yearStart && e.PostedAt <= yearEnd)
+            .Where(e => ids.Contains(e.AccountId) && e.PostedAt >= yearStart && e.PostedAt < yearEndExclusive)
             .ToListAsync();
 
         var result = new List<TaxStatementDto>();
@@ -181,7 +183,37 @@ public class ComplianceService
             lines.Add(new ReconciliationLineDto(currency, Math.Round(ledgerNet, 4),
                 Math.Round(glUsdNet, 4), expected, diff, Math.Abs(diff) <= 0.01m));
         }
-        return new ReconciliationDto(lines, lines.All(l => l.Balanced));
+        // Net sums are always zero by construction (every posting balances), so
+        // they alone can never surface a real discrepancy. Also pair subledger
+        // transactions with their GL journals. Internal customer-to-customer
+        // transfers legitimately post no GL journal (net-zero balance sheet).
+        var withoutJournal = await _db.Transactions.AsNoTracking()
+            .Where(t => t.Status == TransactionStatus.Posted
+                        && !_db.GlJournals.Any(j => j.TransactionId == t.Id))
+            .Include(t => t.Entries).ThenInclude(e => e.Account)
+            .Include(t => t.OriginalTransaction).ThenInclude(ot => ot.Entries).ThenInclude(e => e.Account)
+            .ToListAsync();
+        var missingGl = 0;
+        foreach (var t in withoutJournal)
+        {
+            // A reversal mirrors its original, so judge the original's legs.
+            var legs = t.Type == TransactionType.Reversal && t.OriginalTransaction is not null
+                ? t.OriginalTransaction.Entries
+                : t.Entries;
+            var distinctCodes = legs
+                .Select(e => GlCodes.CodeForAccountNumber(e.Account.AccountNumber))
+                .Distinct().Count();
+            // One GL code means a net-zero internal movement — no journal expected.
+            if (distinctCodes > 1) missingGl++;
+        }
+        var orphanGl = await _db.GlJournals.AsNoTracking()
+            .Where(j => j.TransactionId != null
+                        && !_db.LedgerEntries.Any(e => e.TransactionId == j.TransactionId))
+            .CountAsync();
+
+        return new ReconciliationDto(lines,
+            lines.All(l => l.Balanced) && missingGl == 0 && orphanGl == 0,
+            missingGl, orphanGl);
     }
 
     /// <summary>Idempotent sanctions-list upsert, fully audited.</summary>

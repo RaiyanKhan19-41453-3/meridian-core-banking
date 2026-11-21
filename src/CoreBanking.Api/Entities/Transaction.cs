@@ -45,4 +45,7 @@ public class Transaction
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<LedgerEntry> Entries { get; set; } = new List<LedgerEntry>();
+
+    /// <summary>The transaction this reversal cancels, when Type == Reversal.</summary>
+    public Transaction? OriginalTransaction { get; set; }
 }

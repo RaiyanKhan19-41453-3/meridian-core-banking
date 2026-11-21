@@ -43,9 +43,11 @@ check 'CTR forbidden for customer' 403 "$code"
 code=$(curl -s -o /dev/null -w '%{http_code}' $BASE/api/compliance/reconciliation -H "Authorization: Bearer $TOK")
 check 'reconciliation forbidden for customer' 403 "$code"
 
-echo '=== 5. reconciliation is balanced ==='
+echo '=== 5. reconciliation is balanced and pairs subledger with GL ==='
 REC=$(curl -s $BASE/api/compliance/reconciliation -H "Authorization: Bearer $ADM")
 check 'reconciliation balanced overall' true "$(echo "$REC" | python3 -c "import sys,json; print(str(json.load(sys.stdin)['balanced']).lower())")"
+check 'no missing GL journals' 0 "$(echo "$REC" | python3 -c "import sys,json; print(json.load(sys.stdin)['missingGlJournals'])")"
+check 'no orphan GL journals' 0 "$(echo "$REC" | python3 -c "import sys,json; print(json.load(sys.stdin)['orphanGlJournals'])")"
 
 echo '=== 6. tax statement covers interest earned ==='
 TODAY=$(date -u +%F)
@@ -56,6 +58,15 @@ EARNED=$(echo "$TAX" | python3 -c "import sys,json; d=json.load(sys.stdin); prin
 python3 -c "import sys; sys.exit(0 if float('$EARNED')>0 else 1)" && check 'tax statement shows interest earned' ok ok || check 'tax statement shows interest earned' fail "$EARNED"
 NACCT=$(echo "$TAX" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
 python3 -c "import sys; sys.exit(0 if int('$NACCT')<=6 else 1)" && check 'tax statement excludes system accounts' ok ok || check 'tax statement excludes system accounts' fail "$NACCT"
+
+# A transaction posted later on Dec 31 used to fall outside the inclusive
+# year-end bound and disappear from the tax statement.
+Y=$(date -u +%Y)
+DB "update transactions set created_at='$Y-12-31 12:00:00+00' where type='Interest' and id=(select id from transactions where type='Interest' order by created_at desc limit 1)" > /dev/null
+DB "update ledger_entries set posted_at='$Y-12-31 12:00:00+00' where transaction_id=(select id from transactions where type='Interest' order by created_at desc limit 1)" > /dev/null
+TAX2=$(curl -s "$BASE/api/compliance/tax-statement?year=$Y" -H "Authorization: Bearer $ADM")
+EARNED2=$(echo "$TAX2" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(a['lines'][0]['interestEarned'] for a in d))")
+python3 -c "import sys; sys.exit(0 if float('$EARNED2')>0 else 1)" && check 'Dec 31 afternoon interest included in tax statement' ok ok || check 'Dec 31 afternoon interest included in tax statement' fail "$EARNED2"
 
 echo '=== 7. sanctions-list refresh is idempotent and screened ==='
 NAME="Sanction Target ${RUN_ID}"

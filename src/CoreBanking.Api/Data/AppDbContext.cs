@@ -323,7 +323,7 @@ public class AppDbContext : DbContext
             e.Property(t => t.Type).HasConversion<string>().HasMaxLength(20);
             e.Property(t => t.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(t => t.Description).HasMaxLength(500);
-            e.HasOne<Transaction>().WithMany()
+            e.HasOne(t => t.OriginalTransaction).WithMany()
                 .HasForeignKey(t => t.OriginalTransactionId).OnDelete(DeleteBehavior.Restrict);
         });
 

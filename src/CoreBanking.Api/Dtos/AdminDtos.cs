@@ -48,7 +48,8 @@ public record TaxStatementDto(Guid AccountId, string AccountNumber, int Year,
 public record ReconciliationLineDto(string Currency, decimal LedgerNet, decimal GlUsdNet,
     decimal ExpectedUsdNet, decimal Difference, bool Balanced);
 
-public record ReconciliationDto(IReadOnlyList<ReconciliationLineDto> Lines, bool Balanced);
+public record ReconciliationDto(IReadOnlyList<ReconciliationLineDto> Lines, bool Balanced,
+    int MissingGlJournals, int OrphanGlJournals);
 
 public record WatchlistEntryRequest([Required, MaxLength(200)] string FullName,
     [Required, MaxLength(80)] string Source);

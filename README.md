@@ -191,6 +191,9 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Interest capitalization skips non-active accounts, so a monthly run cannot credit a
   closed account and silently re-open a debt on it.
 - CSV export neutralizes leading tab/CR as well as =+-@ to stop spreadsheet formulas.
+- Tax statements use an exclusive year-end bound, so Dec 31 afternoon postings are
+  included; reconciliation now pairs subledger transactions with GL journals instead
+  of relying on net sums that are always zero by construction.
 - Pagination arithmetic uses 64-bit math with clamping, so an extreme `page` value
   can no longer overflow `Skip` and produce a negative OFFSET (HTTP 500).
 - GL journals are rounded to the stored 4dp precision before the zero-sum check,
@@ -260,7 +263,7 @@ done
 - **CI**: `.github/workflows/ci.yml` builds both apps, checks for pending EF
   migrations, scans dependencies and runs all suites with fresh volumes.
 
-**Verification (all twelve suites on isolated fresh volumes = 297/297 green)**
+**Verification (all twelve suites on isolated fresh volumes = 300/300 green)**
 | Suite | Checks |
 |------|--------|
 | `verify.sh` | 33 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
@@ -272,7 +275,7 @@ done
 | `verify-tier7.sh` | 31 — BDT accounts, CIB scoring, BDT products, per-currency limits, FX-normalized GL, currency-aware AML |
 | `verify-tier8.sh` | 32 — concurrency & ledger integrity: serialized withdrawals, conserved transfers, same-key race posts once, all legs balanced |
 | `verify-tier9.sh` | 13 — roadmap item 12: tiered waivers, ODL-TD, limit review, penalty rates |
-| `verify-tier10.sh` | 15 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
+| `verify-tier10.sh` | 18 — roadmap item 14: CTR/SAR, filings, tax statements, reconciliation, sanctions refresh |
 | `verify-tier11.sh` | 18 — roadmap item 13: beneficiaries, scheduled payments, idempotent sandbox rail |
 | `verify-tier12.sh` | 18 — roadmap item 15: correlation IDs, health probes, metrics, retention, PII encryption |
 
