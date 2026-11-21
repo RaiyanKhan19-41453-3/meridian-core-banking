@@ -60,6 +60,9 @@ public class AdminController : ControllerBase
 
         var account = await _db.Accounts.SingleOrDefaultAsync(a => a.Id == id);
         if (account is null) throw BankException.NotFound("account_not_found", "Account does not exist.");
+        if (account.AccountNumber.StartsWith("SYS-", StringComparison.OrdinalIgnoreCase))
+            throw BankException.Unprocessable("system_account_immutable",
+                "Internal system accounts cannot be frozen, unfrozen or closed.");
         if (account.Status == AccountStatus.Closed) return NoContent(); // idempotent
         if (account.Balance != 0m)
             throw BankException.Unprocessable("balance_not_zero",
@@ -80,6 +83,9 @@ public class AdminController : ControllerBase
 
         var account = await _db.Accounts.SingleOrDefaultAsync(a => a.Id == id);
         if (account is null) throw BankException.NotFound("account_not_found", "Account does not exist.");
+        if (account.AccountNumber.StartsWith("SYS-", StringComparison.OrdinalIgnoreCase))
+            throw BankException.Unprocessable("system_account_immutable",
+                "Internal system accounts cannot be frozen, unfrozen or closed.");
         if (account.Status == AccountStatus.Closed && status != AccountStatus.Closed)
             throw BankException.Conflict("account_closed", "Closed accounts cannot be reopened.");
         if (account.Status == status) return NoContent(); // idempotent
