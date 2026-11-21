@@ -181,6 +181,8 @@ Repeated attack-and-fix rounds closed these correctness gaps:
 - Startup reconciliation repairs installments left Paid by a crash between reversing
   their payment and restoring loan state; monthly fee waivers are re-checked under
   the account row lock so a racing deposit cannot cause a spurious charge.
+- Pagination arithmetic uses 64-bit math with clamping, so an extreme `page` value
+  can no longer overflow `Skip` and produce a negative OFFSET (HTTP 500).
 
 ## Implementation roadmap
 
@@ -216,10 +218,10 @@ for f in verify verify-tier2 verify-tier3 verify-tier4 verify-tier5 verify-tier6
 done
 ```
 
-**Verification (all eight suites on isolated fresh volumes = 211/211 green)**
+**Verification (all eight suites on isolated fresh volumes = 212/212 green)**
 | Suite | Checks |
 |------|--------|
-| `verify.sh` | 31 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
+| `verify.sh` | 32 — auth, 2FA + replay guard, lockout, refresh rotation/reuse, idempotency (actor-scoped), freeze/close/reverse, limits, production dev-key guard |
 | `verify-tier2.sh` | 22 — products, GL journals, trial balance, day-end (accrual/capitalization/fees), future-date guard, concurrent batch claiming, statements |
 | `verify-tier3.sh` | 30 — KYC flow, document vault, sticky watchlist risk, AML rules, admin review |
 | `verify-tier4.sh` | 27 — loans (decisioning, EMI, disburse, batch repayments, overdue + late fee on the batch business date, repayment reversal restores installment, admin portfolio) |
